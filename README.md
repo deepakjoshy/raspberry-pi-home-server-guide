@@ -657,14 +657,30 @@ patched. Do a dry run:
 sudo unattended-upgrade --dry-run -v
 ```
 
-It prints which packages *would* be upgraded, without changing anything — look
-for the `Packages that will be upgraded:` line, and for `Allowed origins are:`
-just above it, which tells you which repositories it is willing to touch at all.
+It prints what *would* be upgraded, without changing anything. Read the
+`Allowed origins are:` line — that is the one that proves your config is being
+read at all, and it tells you which repositories it is willing to touch:
+
+```text
+Allowed origins are: origin=Debian,codename=bookworm,label=Debian-Security, ...
+No packages found that can be upgraded unattended and no pending auto-removals
+```
+
+**Don't hunt for a `Packages that will be upgraded:` line.** On an
+already-patched machine — the normal state if this is working — that line is
+absent entirely, and you get the `No packages found...` line instead. Treating
+its absence as "the dry run found nothing, so the updater must be broken" is the
+wrong conclusion; `Allowed origins are:` with a sane origin list is the pass
+condition. (Verified on Debian 12: a fully-patched Pi prints exactly the two
+lines above and nothing about packages to upgrade.) You may also see a
+`powermgmt-base` notice about battery checks — harmless on a mains-powered Pi.
+
 (Many examples use `--debug` instead. That works, but it buries the same answer
 under ~170 lines of apt pinning detail; `-v` is the readable form, and `--debug`
-is for when `-v` says nothing and you need to know why.) After real runs, the history lives in
-`/var/log/unattended-upgrades/` — check it occasionally to confirm patches are
-landing. Reference: [unattended-upgrades docs](https://wiki.debian.org/UnattendedUpgrades).
+is for when `-v` says nothing and you need to know why.) After real runs, the
+history lives in `/var/log/unattended-upgrades/` — check it occasionally to
+confirm patches are landing. Reference:
+[unattended-upgrades docs](https://wiki.debian.org/UnattendedUpgrades).
 
 ## 11. Reaching your Pi from outside home
 
@@ -2117,6 +2133,48 @@ surprises:
   than case-by-case, especially if the job can install software, touch
   networking, or push to a public repo unattended.
 
+### Periodically re-list what is actually scheduled
+
+Scheduled jobs accumulate faster than notes about them do. Six months in it is
+completely normal to find jobs running that you no longer remember creating —
+and the failure mode is quiet: a job you've forgotten is a job you won't notice
+has been failing, or one whose purpose has silently expired.
+
+There is no single place to look, which is exactly why things hide. Cron and
+systemd each have several, and a job you scheduled as your own user is invisible
+to a root-only check. Run all five:
+
+```bash
+crontab -l                                  # 1. your own crontab
+sudo ls -1 /var/spool/cron/crontabs/        # 2. every user's crontab, incl. root
+cat /etc/crontab; ls /etc/cron.d/           # 3. system cron + drop-ins
+ls /etc/cron.{hourly,daily,weekly,monthly}/ #    and the run-parts directories
+systemctl list-timers --all --no-pager      # 4. system timers (--all shows inactive ones)
+systemctl --user list-timers --all          # 5. YOUR user timers — run WITHOUT sudo
+```
+
+Three things about that list are easy to get wrong:
+
+- **`crontab -l` exits 1 and prints `no crontab for <user>`** when there isn't
+  one. That's normal, not an error — but it means a script that tests the exit
+  code will report a failure on a perfectly healthy machine.
+- **`/var/spool/cron/crontabs/` is mode `drwx-wx--T`**, so listing it without
+  `sudo` fails with `Permission denied` rather than showing an empty result.
+  Don't read that as "no other crontabs exist".
+- **User timers need your own session bus, so `sudo systemctl --user` does not
+  work** — it fails with `Failed to connect to bus: No medium found`. Run the
+  `--user` query as the owning user. Related: a user-level service or timer only
+  survives you logging out if lingering is on; check with
+  `loginctl show-user <username> -p Linger` and enable it with
+  `sudo loginctl enable-linger <username>`.
+
+For each job you find, answer two questions: *does this still need to run*, and
+*would I find out if it stopped*. Delete the ones that have outlived their
+purpose — an unexplained job is technical debt with a schedule. Writing the
+current inventory down somewhere (see
+[versioning your configuration](#21-versioning-your-configuration-with-git))
+turns the next review into a diff instead of a rediscovery.
+
 ## 25. Running an AI ops agent on the server
 
 Everything so far assumed *you* are the one typing commands. A newer option is
@@ -2740,6 +2798,11 @@ and `apt-daily-upgrade.timer` (installs the updates) — each with a plausible
 nothing is scheduled, when in fact it's the timer unit that holds the schedule.
 A genuinely stale `LAST` means you have been unpatched since whenever it
 stopped (step 10).
+
+While you have `list-timers` open, do the wider sweep for **jobs you no longer
+remember scheduling** — cron and systemd hide them in five different places, and
+`--user` timers are invisible to a root-only check. The full enumeration is in
+[Periodically re-list what is actually scheduled](#periodically-re-list-what-is-actually-scheduled).
 
 **Storage and data**
 
