@@ -1057,11 +1057,28 @@ background job for housekeeping (cleaning expired shares, updating previews,
 etc.). Point cron at it instead of relying on the slower built-in AJAX trigger:
 
 ```bash
-(crontab -l 2>/dev/null; echo "*/5 * * * * docker exec -u www-data nextcloud php cron.php") | crontab -
+(crontab -l 2>/dev/null; echo "*/5 * * * * /usr/bin/docker exec -u www-data nextcloud php cron.php") | crontab -
 ```
 
 Then in the Nextcloud admin settings (**Settings → Administration →
 Basic settings**), switch "Background jobs" to **Cron**.
+
+Two details in that one line. The absolute `/usr/bin/docker` follows the cron
+rule in [step 24](#24-task-automation-and-scheduled-jobs) — don't rely on cron's
+minimal `PATH` matching your shell's. And this installs the job in **your** user
+crontab, so that user must be in the `docker` group (the `usermod -aG docker`
+step above); otherwise every run fails with a permission-denied on the Docker
+socket, silently, five minutes apart forever. Check after the first interval:
+
+```bash
+crontab -l | grep cron.php                                  # the job is installed
+docker exec -u www-data nextcloud php -f /var/www/html/cron.php   # run it once by hand
+```
+
+A successful manual run is silent and exits `0`; any error prints here rather
+than vanishing into cron's mail. Note that `occ background:cron` is **not** a
+way to run the job — it is the command-line equivalent of the admin-settings
+switch above, i.e. it sets the *mode* and returns immediately.
 
 **7. Updating.** Nextcloud updates itself in-app for minor versions (via the
 web UI's update notification), but for major version jumps, pull the new image
@@ -1913,6 +1930,32 @@ A few rules that matter more here than in a typical code repo:
   — a nightly job that snapshots changed config, scans it, and commits only if
   there's a real, clean delta.
 
+**Copy into the repo; don't `git init` inside `/etc`.** Most of what's worth
+versioning lives in root-owned system directories, and turning one of those into
+a working tree is a good way to have a stray `git checkout` rewrite live system
+files. The safe shape is a plain repo somewhere you own, plus a script that
+*copies* the interesting files in before committing. A reasonable starting set:
+
+| What | Where it lives | Why it's worth having |
+|---|---|---|
+| Compose files and `.env.example` | `~/apps/*/docker-compose.yml` | Rebuilding a service from scratch |
+| systemd units you wrote | `/etc/systemd/system/`, `~/.config/systemd/user/` | The unit file is the only record of how a service starts |
+| Firewall rules | `/etc/ufw/user.rules`, `/etc/ufw/user6.rules` | Diffs show exactly when a port was opened |
+| SSH server config | `/etc/ssh/sshd_config`, `/etc/ssh/sshd_config.d/` | The highest-consequence file on the box |
+| Mounts | `/etc/fstab` | A bad edit here can stop the Pi booting |
+| Samba / app configs | `/etc/samba/smb.conf`, etc. | Whatever you hand-edited |
+| Scheduled jobs | `crontab -l`, `systemctl list-timers` output | See [the inventory sweep](#periodically-re-list-what-is-actually-scheduled) |
+| Installed packages | `apt-mark showmanual > packages.txt` | A one-command answer to "what did I install?" on a rebuild |
+
+`apt-mark showmanual` is the useful one for a rebuild: it lists only the
+packages *you* asked for, not the hundreds pulled in as dependencies, so the
+file stays readable and can be fed back with `xargs sudo apt install -y`.
+
+**What deliberately stays out:** private keys (`/etc/ssh/ssh_host_*_key`,
+`~/.ssh/id_*`), `.env` files, anything under a credentials directory, and
+`/etc/shadow`. A config repo is a map of your machine — treat it as sensitive
+even when it holds no secrets, and keep it private regardless.
+
 ## 22. Log management
 
 Every service on the Pi writes logs somewhere, and left unmanaged they'll
@@ -2005,6 +2048,19 @@ runs — as you, without permission — so the obvious
 `No such file or directory` and a reassuring `0 total` even when the logs are
 gigabytes. Quoting the pattern hands the matching to `find`, which is already
 running as root.
+
+One caveat on reading the result: when `find` matches **nothing**, the whole
+pipeline prints *nothing at all* and still exits `0` — no `0 total`, no error.
+Blank output therefore does not mean "checked, and it's clean"; it equally means
+the path was wrong, or your containers use a logging driver other than
+`json-file` (in which case this file simply doesn't exist and the cap below is
+not the knob you want). Confirm you actually measured something:
+
+```bash
+sudo find /var/lib/docker/containers -name '*-json.log' -exec du -ch {} + \
+  | tail -1 | grep . || echo "no json-file container logs found - check the driver/path"
+docker inspect --format '{{.Name}} {{.HostConfig.LogConfig.Type}}' $(docker ps -q)
+```
 
 Cap it globally by creating `/etc/docker/daemon.json` (the file does not exist
 by default — create it if it's missing, and back it up first if it isn't):
