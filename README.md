@@ -349,6 +349,25 @@ Restarting the SSH server does **not** drop sessions that are already open —
 each connection is handled by its own process — which is precisely why the
 "keep your first session open" rule saves you here.
 
+**If you picked Ubuntu Server rather than Raspberry Pi OS, check which unit
+actually owns port 22 first.** Ubuntu 22.10 and later start `sshd` on demand
+from `ssh.socket` instead of running it continuously, so the socket unit is what
+holds the listening port and the command above acts on a service that was not
+listening in the first place. Raspberry Pi OS (Debian 12) ships that socket unit
+but leaves it **disabled**, which is why the plain service form is correct here.
+Ask rather than assume:
+
+```bash
+systemctl is-enabled ssh.socket
+```
+
+On Raspberry Pi OS this prints `disabled` (exit code 1), and you are on the
+service path described above. If it prints `enabled`, apply the same action to
+`ssh.socket` instead — and, either way, keep the existing session open and prove
+the new one works before you close it. Reference:
+[Ubuntu — sshd socket-based
+activation](https://discourse.ubuntu.com/t/sshd-now-uses-socket-based-activation-ubuntu-22-10-and-later/30189).
+
 **Step 5 — Verify.** With your original session still open, start yet another
 new SSH connection. It should log in via your key and **refuse** any password
 fallback. If something's wrong, you still have the working session to fix it.
@@ -588,10 +607,28 @@ On a jail using the systemd backend, the first prints
 there is no file — and the second prints the journal filter it is actually
 applying, e.g. `Journal matches: _SYSTEMD_UNIT=sshd.service + _COMM=sshd`.
 On a file backend it is the other way round: `logpath` lists the file being
-tailed and the `grep` returns nothing. The genuine failure to look for is
-`logpath` naming a file that **does not exist** on your system — classically
-`/var/log/auth.log` on an image with no rsyslog installed. That jail starts
-cleanly, reports healthy, and reads nothing at all.
+tailed and the `grep` returns nothing.
+
+**On a journal-only image, `backend = systemd` is not tuning — it is required.**
+Recent Raspberry Pi OS and Debian images ship **no rsyslog**, so
+`/var/log/auth.log` never exists. The stock `[sshd]` jail resolves its log path
+to that file, and modern fail2ban does not quietly tail nothing: it refuses to
+start at all, with
+
+```text
+ERROR   Failed during configuration: Have not found any log file for sshd jail
+```
+
+in the journal, leaving you unprotected while the unit sits in a failed state.
+(Verified on Debian 12 with fail2ban 1.0.2: remove the `backend = systemd` line
+and even the shipped default jail fails exactly this way.) So if fail2ban won't
+come up after a fresh install, this is almost always why — and you can prove it
+without touching the running service, since this parses the whole config and
+starts nothing:
+
+```bash
+sudo fail2ban-server --test    # prints "OK" or the error above
+```
 
 Reference: [fail2ban
 docs](https://github.com/fail2ban/fail2ban).
@@ -1834,6 +1871,23 @@ A home server is only as safe as its backups. Build these habits early:
   returns non-zero for a plain directory, so the job stops instead. Put the
   same guard in front of every scheduled job that writes to attached storage
   (see [step 27](#27-a-checklist-to-verify-your-setup)).
+
+  **Guard free space too, not just the mount.** A backup drive fills up
+  eventually — and a full destination is a nastier failure than an unmounted
+  one, because `rsync --delete` removes files at the destination *before* it
+  discovers it cannot write the new ones. You are left with a directory that
+  looks like a snapshot, is partial, and may have replaced a good one. Check
+  before starting, with an absolute number rather than a percentage:
+
+  ```bash
+  AVAIL=$(df --output=avail -k /mnt/backup | tail -1)     # free KiB, no header
+  [ "$AVAIL" -gt 2097152 ] || { echo "under 2GB free on backup drive - aborting"; exit 1; }
+  ```
+
+  Size that threshold to one full run of *your* backup, not to 2GB. Note also
+  the exit code a disk-full run actually produces: rsync **11** ("error in file
+  IO"), not the 23 or 24 above — so a script that only special-cases 23 and 24
+  will mis-explain the most likely real failure.
 
   **Check `rsync`'s exit code, don't just check that it ran.** A run that copies
   most files but fails on some — one unreadable file, one attribute the
