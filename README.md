@@ -1401,6 +1401,19 @@ media server (e.g. [Jellyfin](https://jellyfin.org/)) are two of the most
 common reasons people build a home server in the first place. A few points
 that aren't obvious the first time:
 
+- **Install the headless build, not the desktop one.** Debian ships two
+  packages built from the same source: `qbittorrent` (the Qt desktop GUI,
+  binary `/usr/bin/qbittorrent`) and `qbittorrent-nox` (*no X*, web-UI only,
+  binary `/usr/bin/qbittorrent-nox`). On a headless Pi you want the second:
+  ```bash
+  sudo apt install qbittorrent-nox -y
+  ```
+  Install the plain `qbittorrent` by mistake and you get a service that starts
+  and immediately aborts, because the GUI build has no display to draw on. The
+  give-away in the log is `qt.qpa.plugin: Could not load the Qt platform plugin
+  "xcb"` followed by `status=6/ABRT`, which reads like a broken install rather
+  than the wrong package. (Verified on Debian 12: both packages are version
+  `4.5.2-3+deb12u1`, and only the `-nox` one ships the `qbittorrent-nox` binary.)
 - **Run it as its own service, not an ad-hoc terminal process**, so it survives
   reboots and crashes. A systemd **user** service is a good fit for something
   that only needs your own account's permissions:
@@ -2050,6 +2063,26 @@ list. A `my-app.bak.20260101` sitting beside `my-app` is parsed as a second,
 live config, which then trips `duplicate log entry for <path>` and makes the
 whole run exit non-zero. Keep backups of these files somewhere outside the
 directory (or end the name with `~`).
+
+**The config file must be owned by root and must not be group- or
+world-writable**, or logrotate skips it entirely. This is the opposite failure
+to the one above, and far quieter: instead of erroring out it prints
+`error: Ignoring /etc/logrotate.d/my-app because it is writable by group or
+others.` (or `... because the file owner is wrong`), reports `Handling 0 logs`,
+and **still exits 0** — so the daily run looks successful, nothing alerts, and
+your log simply never rotates. It bites when you draft the file elsewhere and
+move it in, or edit it as your own user rather than as root. Fix and confirm:
+
+```bash
+sudo chown root:root /etc/logrotate.d/my-app
+sudo chmod 644 /etc/logrotate.d/my-app
+sudo logrotate -d /etc/logrotate.d/my-app 2>&1 | grep -E 'Handling|Ignoring'
+```
+
+`Handling 1 logs` means the rule is live; `Handling 0 logs` means it is being
+ignored, whatever the exit code says. (Verified on Debian 12 with logrotate
+3.21: mode `664`, and mode `644` owned by a non-root user, were both skipped
+while the command still exited 0.)
 
 No new timer is usually needed — most systems already run `logrotate` daily via
 a system timer or cron entry; a new config just needs to exist under
