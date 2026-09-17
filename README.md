@@ -1902,6 +1902,23 @@ A home server is only as safe as its backups. Build these habits early:
   IO"), not the 23 or 24 above — so a script that only special-cases 23 and 24
   will mis-explain the most likely real failure.
 
+  **And put the cleanup of old snapshots where it will still run.** A rotating
+  backup script usually deletes expired snapshots *after* a successful copy —
+  which means every failed run skips the cleanup. That is a slow trap: one
+  failure leaves an extra snapshot behind, the extra snapshot brings the drive
+  closer to full, and a full drive makes the next run fail too. A 3-day
+  retention quietly becomes five days of snapshots and then a drive at 100%.
+  Either prune *before* the copy (so a failing run still reclaims space), or
+  run the prune from an `EXIT` trap so it happens on every path out:
+
+  ```bash
+  cleanup() { find /mnt/backup/daily -maxdepth 1 -mtime +3 -type d -exec rm -rf {} +; }
+  trap cleanup EXIT
+  ```
+
+  Check `-mtime`/`-maxdepth` against your own layout before trusting a
+  recursive delete, and test it once with `-print` in place of `-exec rm`.
+
   **Check `rsync`'s exit code, don't just check that it ran.** A run that copies
   most files but fails on some — one unreadable file, one attribute the
   destination filesystem can't store — still transfers everything else and then
@@ -1970,6 +1987,52 @@ A home server is only as safe as its backups. Build these habits early:
   24/7 writes — this is why an SSD is worth it for busy setups.
 - **Keep a running TODO list** of unfinished items. A home server is rarely
   "done" in one sitting.
+
+### Finding and reclaiming disk space
+
+Sooner or later the root filesystem gets uncomfortably full, and the instinct
+is to start deleting things. Measure first — on a server, the space is almost
+never where you assume, and most of it is usually cache that regenerates for
+free. Work top-down:
+
+```bash
+df -h /                                          # how bad is it, really
+du -xh --max-depth=1 / 2>/dev/null | sort -h | tail -10
+sudo du -xh --max-depth=1 /var | sort -h | tail -10
+```
+
+`-x` keeps `du` on one filesystem so it doesn't wander into mounted drives and
+report their size as yours. Run it with `sudo` for anything outside your home
+directory: without it `du` skips unreadable directories, prints a **smaller
+total anyway**, and exits `1` — so an un-elevated scan can under-report a
+problem area by gigabytes while looking like a normal answer. If you'd rather
+browse than read totals, `sudo apt install ncdu` gives an interactive version
+(`sudo ncdu -x /`).
+
+The usual big four on a Pi, and how to reclaim each safely:
+
+| What | Check it | Reclaim |
+|---|---|---|
+| APT package cache (`/var/cache/apt`) | `sudo du -sh /var/cache/apt/archives` | `sudo apt clean` |
+| systemd journal | `journalctl --disk-usage` | `sudo journalctl --vacuum-time=7d` (see [step 22](#22-log-management)) |
+| Docker images, volumes, build cache | `docker system df` | `docker image prune` (dangling only); read the caveat below |
+| Language/tool caches in `$HOME` | `du -sh ~/.cache ~/.npm` | delete the cache directory; it rebuilds on next use |
+
+All of these are re-downloadable or regenerated — clearing them loses no data,
+only time on the next operation.
+
+Two cautions on the Docker line. `docker system df` splits its output into
+`SIZE` and `RECLAIMABLE`, and only the second number is actually free to take:
+images backing a running container are counted but not reclaimable. And
+`docker system prune -a` is far more aggressive than it sounds — it removes
+every image not currently used by a *running* container, including ones you
+pulled deliberately for a service that happens to be stopped. Prefer the
+narrow forms (`docker image prune`, `docker builder prune`) and look at what
+`docker images` holds before reaching for `-a`.
+
+What is *not* in that table: your own data, and anything under a service's
+data directory. If clearing caches doesn't buy enough room, the answer is
+bigger storage or fewer services — not deleting something you can't get back.
 
 ## 21. Versioning your configuration with git
 
