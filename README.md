@@ -1912,12 +1912,16 @@ A home server is only as safe as its backups. Build these habits early:
   run the prune from an `EXIT` trap so it happens on every path out:
 
   ```bash
-  cleanup() { find /mnt/backup/daily -maxdepth 1 -mtime +3 -type d -exec rm -rf {} +; }
+  cleanup() { find /mnt/backup/daily -mindepth 1 -maxdepth 1 -mtime +3 -type d -exec rm -rf {} +; }
   trap cleanup EXIT
   ```
 
-  Check `-mtime`/`-maxdepth` against your own layout before trusting a
-  recursive delete, and test it once with `-print` in place of `-exec rm`.
+  `-mindepth 1` is load-bearing, not decoration: without it `find` also tests
+  the search directory itself, and an old-enough `/mnt/backup/daily` matches
+  `-mtime +3` and is handed to `rm -rf` — deleting the whole backup tree, not
+  the expired snapshots inside it. (Verified: the `-maxdepth 1` form alone
+  prints the parent directory as a match.) Check `-mtime` against your own
+  layout too, and test it once with `-print` in place of `-exec rm`.
 
   **Check `rsync`'s exit code, don't just check that it ran.** A run that copies
   most files but fails on some — one unreadable file, one attribute the
@@ -1979,10 +1983,11 @@ A home server is only as safe as its backups. Build these habits early:
   covers the current boot. For longer history use
   `journalctl _TRANSPORT=kernel -p warning --since "1 week ago"` (needs a
   persistent journal — see [step 22](#22-log-management)). Not `journalctl -k`
-  with a `--since`: `-k` implies `-b`, so it silently clamps the answer to the
-  current boot no matter how far back you ask — the reboot you were trying to
-  explain is on the other side of that boundary. (Verified on a Pi: the two
-  forms returned 2,776 and 31,766 lines for the same one-week window.)
+  with a `--since`: as [step 18](#18-memory-swap-and-container-resource-limits)
+  explains, `-k` implies `-b` and silently clamps the answer to the current
+  boot, so the reboot you were trying to explain is on the other side of that
+  boundary. (Measured on a Pi: 2,776 lines versus 31,766 for the same one-week
+  window.)
   Don't be surprised if an SD card needs replacing after a year or two of heavy
   24/7 writes — this is why an SSD is worth it for busy setups.
 - **Keep a running TODO list** of unfinished items. A home server is rarely
