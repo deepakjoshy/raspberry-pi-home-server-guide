@@ -1536,9 +1536,13 @@ a local automation script without sending data anywhere.
 curl -fsSL https://ollama.com/install.sh | sh
 ```
 
-The installer creates and starts a systemd service (`ollama.service`) for you —
-you do not need to enable it separately, but do confirm it came up and is bound
-where you expect:
+As with any installer piped into a shell, read the script first if you would
+rather not run unreviewed remote code as root.
+
+The installer creates and starts a systemd service (`ollama.service`) for you,
+so you do not need to enable it separately. It binds `localhost:11434` by
+default — **not** your LAN or the internet — which is the right default for an
+API with no built-in authentication of its own. Confirm both:
 
 ```bash
 systemctl is-enabled ollama       # enabled
@@ -1552,12 +1556,6 @@ the address you were told to watch out for, and a quick glance can read as a
 pass. (Verified on Debian 12 with a deliberately wildcard-bound Ollama: the
 output line is `tcp LISTEN 0 4096 *:11434 *:*`.) Anything other than a literal
 `127.0.0.1` here means the API is reachable beyond the Pi itself.
-
-(As with any `curl | sh` installer, read the script first if you'd rather not
-run an unreviewed remote script as root.) The service listens on
-`localhost:11434` by default — **not** exposed to your LAN or the internet
-unless you deliberately change its bind address, which is the right default
-for something with no built-in authentication of its own.
 
 Pull a model and try it:
 
@@ -2080,11 +2078,32 @@ files. The safe shape is a plain repo somewhere you own, plus a script that
 | Mounts | `/etc/fstab` | A bad edit here can stop the Pi booting |
 | Samba / app configs | `/etc/samba/smb.conf`, etc. | Whatever you hand-edited |
 | Scheduled jobs | `crontab -l`, `systemctl list-timers` output | See [the inventory sweep](#periodically-re-list-what-is-actually-scheduled) |
-| Installed packages | `apt-mark showmanual > packages.txt` | A one-command answer to "what did I install?" on a rebuild |
+| Installed packages | `apt-mark showmanual > packages.txt` | A starting point for a rebuild — see the caveat below |
 
-`apt-mark showmanual` is the useful one for a rebuild: it lists only the
-packages *you* asked for, not the hundreds pulled in as dependencies, so the
-file stays readable and can be fed back with `xargs sudo apt install -y`.
+`apt-mark showmanual` is the closest built-in thing to a rebuild list, but
+calibrate what it actually means. It lists every package that was *not* pulled
+in as a dependency of another package — which includes the entire base OS
+image. On a real Pi that is hundreds of lines of `bash`, `apt`, `base-files`
+and preinstalled desktop packages you never chose. (Measured on a working Pi 5
+that had about a dozen things installed by hand: 383 packages reported manual,
+1497 auto — with `chromium`, `code` and `alsa-utils` among the "manual" ones.)
+It is still worth committing, because the *diff* between two snapshots is
+precisely what you added since the last one. Just do not feed the whole file
+to `xargs sudo apt install -y` on a fresh card expecting a faithful rebuild.
+
+For a list of only what you installed deliberately, replay your own commands
+out of the package manager log instead:
+
+```bash
+zcat -f /var/log/apt/history.log* | grep "^Commandline:" \
+  | sed "s/^Commandline: //" | grep -E "^(apt|apt-get|aptitude) .*(install|remove|purge) "
+```
+
+`zcat -f` reads the rotated `.gz` files and the current plain-text one in one
+command. Two caveats: this misses anything a vendor `install.sh`, `pip` or
+Docker put on the box without going through `apt`, and `history.log` rotates and
+is eventually deleted — so snapshot the output into the repo rather than
+trusting the log to still be there on the day you need it.
 
 **What deliberately stays out:** private keys (`/etc/ssh/ssh_host_*_key`,
 `~/.ssh/id_*`), `.env` files, anything under a credentials directory, and
