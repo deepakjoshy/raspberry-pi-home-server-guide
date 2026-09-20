@@ -650,12 +650,18 @@ sudo arp-scan --interface=eth0 --localnet    # name your LAN interface explicitl
 ```
 
 **Name the interface.** `--localnet` derives the range to scan from an
-interface's own address and netmask, and if you don't say which interface,
-`arp-scan` picks the lowest-numbered configured, up, non-loopback one. On a Pi
-running Docker or a VPN that is very often `docker0` (`172.17.0.0/16`) or a
-tunnel interface rather than your LAN — so the scan succeeds, reports a handful
-of containers, and never looks at your network at all. Check what you have with
-`ip -brief addr` and pass the right name (`eth0` wired, `wlan0` Wi-Fi).
+interface's own address and netmask, and if you don't say which one,
+`arp-scan` chooses for you — the lowest-numbered configured, up, non-loopback
+interface. That is usually the right answer on a Pi, because `eth0` and
+`wlan0` exist from boot and get lower interface indexes than anything Docker
+or a VPN creates later. (On a Pi running Docker, Tailscale and four container
+bridges: `eth0` is index 2, `docker0` index 5 — so `eth0` wins.) It stops
+being the right answer the moment your LAN interface is **down** — a Wi-Fi Pi
+with an unused `eth0`, or a cable unplugged — because then the first *up*
+interface really is `docker0` (`172.17.0.0/16`) or a tunnel, and the scan
+succeeds, reports a handful of containers, and never looks at your network at
+all. Don't leave it to the ordering: check with `ip -brief addr` and pass the
+name explicitly (`eth0` wired, `wlan0` Wi-Fi).
 
 Run this on a schedule (see [Task automation](#24-task-automation-and-scheduled-jobs))
 and keep a simple text or JSON file of MAC addresses you've already seen — a
@@ -2538,9 +2544,9 @@ sysadmin basics. Jobs fall into roughly three classes:
 
 Two hard-won rules. **Anything expressible as a script should be a script** —
 it's faster, free, and can't hallucinate; save the model for jobs that need
-judgment. And **make failures loud, successes quiet**: a job that messages you
-nightly gets ignored within a week, so have them emit nothing unless something
-genuinely changed.
+judgment. And the "[make failures loud, successes
+quiet](#24-task-automation-and-scheduled-jobs)" rule bites harder here: a job
+that messages you nightly gets ignored within a week.
 
 A worked example of the second class: a weekly audit that snapshots containers,
 systemd units, listening ports, and installed packages to a file, diffs it
@@ -2663,8 +2669,19 @@ implementation — commonly [faster-whisper](https://github.com/SYSTRAN/faster-w
 a reimplementation that is several times quicker on CPU than the original:
 
 ```bash
-pip install faster-whisper
+python3 -m venv ~/.venvs/whisper
+~/.venvs/whisper/bin/pip install faster-whisper
 ```
+
+The virtual environment is not optional tidiness on a current Raspberry Pi OS
+or Debian 12 image. Python there is an **externally managed environment**
+(PEP 668), so a bare `pip install` of anything refuses to run and exits with
+`error: externally-managed-environment` — which reads like a broken pip
+rather than the deliberate guard it is. (Verified on Raspberry Pi OS with
+Python 3.11.) Resist `--break-system-packages`: it lets pip overwrite packages
+`apt` also manages, which is how you end up with a Pi whose system tools stop
+importing. If your agent bundles transcription it has usually built its own
+virtual environment already — check before making a second one.
 
 Models download automatically on first use. **The default is usually the `base`
 model, and upgrading it is the single highest-value tweak here** — technical
@@ -2822,14 +2839,12 @@ primary one, so the approval path and the alert path stay the same place.
   ([step 14](#14-uptime-monitoring-and-alerts)). A messaging platform doubles as
   the approval channel, so the agent can ask permission when you're not at a
   terminal.
-- **Keep secrets in permission-locked files**, referenced by path, never pasted
-  into a config the agent quotes back. `chmod 600`, outside git
-  ([step 21](#21-versioning-your-configuration-with-git)).
-- **Rotate its logs.** `~/.hermes/logs/` is exactly the custom path
-  [step 22](#22-log-management) is about.
-- **Back up its state directory** with everything else
-  ([step 20](#20-backups-and-maintenance)) — the tuning in there is the part you
-  can't reinstall.
+- **Treat its home directory like any other service's.** Secrets in
+  `chmod 600` files outside git
+  ([step 21](#21-versioning-your-configuration-with-git)), a logrotate rule for
+  `~/.hermes/logs/` ([step 22](#22-log-management)), and the whole state
+  directory in your backup set ([step 20](#20-backups-and-maintenance)) — the
+  tuning in there is the part you can't reinstall.
 - **Don't let it be your only way in.** If the agent is how you administer the
   box, a broken agent is a lockout. Keep SSH working independently
   ([step 6](#6-secure-your-ssh-access)) and a
@@ -3129,11 +3144,20 @@ keeps dying without an obvious log reason, check for an OOM kill (step 18).
   disconnect** — common with NTFS-formatted drives that get unplugged without
   "safely eject" first, leaving a "dirty" filesystem flag Linux won't
   auto-mount read-write. A small boot-time check-and-repair script (using
-  `ntfsfix -n` to detect the dirty state, then `ntfsfix` to clear it before
-  retrying the mount) turns this from a manual fix into something that
-  self-heals on every boot — see [Task automation and scheduled
+  `ntfsfix -n <device>` to see what would be done, then `ntfsfix -d <device>`
+  to actually clear the flag, before retrying the mount) turns this from a
+  manual fix into something that self-heals on every boot — see [Task
+  automation and scheduled
   jobs](#24-task-automation-and-scheduled-jobs) for wiring a script to run at
-  boot via systemd. **Remember to retire or rewrite this kind of script if you
+  boot via systemd. **The `-d` is doing the real work here:** plain
+  `ntfsfix <device>` resets the journal but deliberately *leaves* the volume
+  flagged dirty so Windows runs its own check at next boot — the exact state
+  you were trying to get out of. Only `-d`/`--clear-dirty` clears the flag,
+  and only if the volume can be fixed and mounted. (Verified against
+  `man 8 ntfsfix`, ntfs-3g 2022.10.3 on Debian 12.) It repairs a handful of
+  inconsistencies and is explicitly *not* a `chkdsk`, so a genuinely damaged
+  volume still needs Windows.
+  **Remember to retire or rewrite this kind of script if you
   later reformat the drive to a filesystem without a dirty-bit concept** (e.g.
   exFAT — see [Choosing a filesystem for attached
   storage](#17-choosing-a-filesystem-for-attached-storage)); it'll harmlessly
