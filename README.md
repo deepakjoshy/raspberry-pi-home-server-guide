@@ -134,22 +134,46 @@ first. It's the one prerequisite skill.
 Do **not** plug in the power supply yet. First boot happens after flashing.
 
 **A note on overclocking.** Raspberry Pi OS lets you push the CPU past its
-stock frequency (e.g. via `raspi-config`'s Performance options, or directly by
-setting `arm_freq`/`over_voltage` in `/boot/firmware/config.txt`). It's a real
-option once everything else is stable and you want more headroom for several
-Docker containers — but treat it as a deliberate, monitored choice, not a
-default:
+stock frequency (e.g. via `raspi-config`'s Performance options, or by setting
+`arm_freq` in `/boot/firmware/config.txt`). It's a real option once everything
+else is stable and you want more headroom for several Docker containers — but
+treat it as a deliberate, monitored choice, not a default:
 
 - Always pair a frequency bump with adequate cooling (a case fan, not just a
   passive heatsink, once you're pushing past stock) — overclocking raises heat
   output and a Pi that's already running hot has less thermal margin to spare.
+  The firmware disables overclocking at runtime once the SoC reaches
+  `temp_limit` (85°C by default), and also whenever it detects under-voltage —
+  so an overclock on an inadequately cooled or under-powered Pi partly
+  un-applies itself, which looks like random instability rather than a clock
+  setting.
 - Check for throttling regularly, not just once after applying the change —
   the two `vcgencmd` commands for this are in
   [Troubleshooting](#29-troubleshooting).
-- If you inherit or revisit a Pi and don't remember setting an overclock,
-  check `/boot/firmware/config.txt` for `arm_freq`/`over_voltage` lines before
-  assuming odd instability is a software problem — it's an easy thing to set
-  once and then forget about.
+- **Don't hand-set the voltage on a modern Pi unless you have a reason.**
+  Current firmware raises the core voltage automatically when you overclock,
+  and writing an explicit `over_voltage` **turns that automatic scaling off** —
+  so the "safety margin" line copied from older guides can leave you with less
+  headroom than doing nothing. On Pi 4 and Pi 5 the supported manual knob is
+  `over_voltage_delta` (an offset in microvolts applied on top of what the
+  firmware calculates), and `over_voltage_min` is deprecated on both.
+- Note what actually sets the permanent "this Pi was overclocked" bit in the
+  SoC: it latches only when `force_turbo=1` is combined with an
+  `over_voltage_*` above 0. A plain `arm_freq` bump at stock voltage does not
+  set it.
+- If you inherit or revisit a Pi and don't remember setting an overclock, ask
+  the firmware what it is running rather than trusting the file — a value can
+  also arrive from `raspi-config` or a vendor image:
+  ```bash
+  vcgencmd get_config arm_freq          # compare against your model's stock figure
+  vcgencmd get_config over_voltage
+  vcgencmd get_config over_voltage_delta
+  ```
+  Stock `arm_freq` is 2400 MHz on a Pi 5, 1800 on a Pi 4B R1.4 with
+  `arm_boost=1`, 1500 otherwise. A higher number here, on a Pi you don't
+  remember tuning, is worth knowing before you debug odd instability as a
+  software problem. Reference:
+  [`config.txt` overclocking options](https://www.raspberrypi.com/documentation/computers/config_txt.html#overclocking-options).
 
 ## 3. Flash and install the OS
 
@@ -363,8 +387,7 @@ systemctl is-enabled ssh.socket
 
 On Raspberry Pi OS this prints `disabled` (exit code 1), and you are on the
 service path described above. If it prints `enabled`, apply the same action to
-`ssh.socket` instead — and, either way, keep the existing session open and prove
-the new one works before you close it. Reference:
+`ssh.socket` instead. Reference:
 [Ubuntu — sshd socket-based
 activation](https://discourse.ubuntu.com/t/sshd-now-uses-socket-based-activation-ubuntu-22-10-and-later/30189).
 
@@ -561,12 +584,17 @@ Paste a sensible starting policy for SSH:
 ```text
 [sshd]
 enabled = true
+backend = systemd
 maxretry = 5
 findtime = 10m
 bantime = 1h
 ```
 
-This bans an IP for 1 hour after 5 failed attempts within 10 minutes. Enable and
+This bans an IP for 1 hour after 5 failed attempts within 10 minutes.
+`backend = systemd` tells the jail to read authentication records from the
+systemd journal rather than from a `/var/log/auth.log` file. On a current
+Raspberry Pi OS or Debian image that line is **not** optional — leave it out and
+fail2ban refuses to start at all; the reason is spelled out below. Enable and
 start the service, then check it:
 
 ```bash
@@ -577,12 +605,8 @@ sudo fail2ban-client status sshd
 The status output shows currently banned IPs and totals.
 
 **Verify it's actually reading logs.** fail2ban can start cleanly yet ban
-nothing if it's watching the wrong log source. On systems that keep
-authentication logs only in the systemd journal (rather than in a
-`/var/log/auth.log` file), tell the jail to read the journal by adding
-`backend = systemd` under `[sshd]` in `jail.local`, then restart it. A quick
-end-to-end test is to ban and unban a documentation-only test address and
-confirm both take effect:
+nothing if it's watching the wrong log source. A quick end-to-end test is to ban
+and unban a documentation-only test address and confirm both take effect:
 
 ```bash
 sudo fail2ban-client set sshd banip 203.0.113.10
@@ -609,9 +633,11 @@ applying, e.g. `Journal matches: _SYSTEMD_UNIT=sshd.service + _COMM=sshd`.
 On a file backend it is the other way round: `logpath` lists the file being
 tailed and the `grep` returns nothing.
 
-**On a journal-only image, `backend = systemd` is not tuning — it is required.**
+**Why the starting config above sets `backend = systemd`.**
 Recent Raspberry Pi OS and Debian images ship **no rsyslog**, so
-`/var/log/auth.log` never exists. The stock `[sshd]` jail resolves its log path
+`/var/log/auth.log` never exists. (Check your own with
+`dpkg -l rsyslog` and `ls /var/log/auth.log` — on the Pi this guide was written
+on, the package is not installed and the file is absent.) The stock `[sshd]` jail resolves its log path
 to that file, and modern fail2ban does not quietly tail nothing: it refuses to
 start at all, with
 
