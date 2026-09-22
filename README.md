@@ -713,6 +713,27 @@ Choose **Yes** when prompted to enable automatic updates. The behaviour lives in
 `/etc/apt/apt.conf.d/50unattended-upgrades` (what to upgrade) and
 `/etc/apt/apt.conf.d/20auto-upgrades` (how often).
 
+**Mind the filename if you add your own drop-in there.** apt reads files in
+`/etc/apt/apt.conf.d/` only if they have **no extension at all, or `.conf`** —
+anything else is ignored outright. So `51my-overrides.local`, named by analogy
+with fail2ban's `jail.local` habit from [step 8](#8-block-brute-force-attacks-fail2ban),
+is never read, and your settings simply do not apply. apt does say so, but as a
+one-line `N:` notice buried in ordinary output:
+
+```text
+N: Ignoring file '51my-overrides.local' in directory '/etc/apt/apt.conf.d/' as it has an invalid filename extension
+```
+
+The same rule collides with this guide's back-up-before-you-edit habit, exactly
+as it does for logrotate ([step 22](#22-log-management)) — but in the opposite
+direction, and harmlessly. A bare `.bak` suffix is on apt's silent-ignore list;
+a timestamped `50unattended-upgrades.bak.20260101` is **not**, because that list
+anchors at the end of the name. The backup is still ignored rather than parsed
+as live config, so nothing breaks — you just get the notice above on every apt
+run until you move it out of the directory. Ask apt what it ignores silently
+with `apt-config dump Dir::Ignore-Files-Silently`. Reference:
+[apt.conf(5)](https://manpages.debian.org/bookworm/apt/apt.conf.5.en.html).
+
 **Recommended tuning:** let security updates apply automatically, but consider
 **excluding things you'd rather upgrade deliberately** — Docker Engine, firmware
 — so an unattended update can't break a service while nobody's watching. You can
@@ -2353,7 +2374,7 @@ mechanisms:
   time/interval." Edit your own crontab with `crontab -e`; each line is
   `<minute> <hour> <day> <month> <weekday> <command>`.
 
-  Two things about crontab lines bite almost everyone once:
+  Three traps catch almost everyone once:
 
   - **A bare `%` is not a percent sign.** In a crontab, an unescaped `%` is
     turned into a newline and everything after the first one is fed to the
@@ -2368,6 +2389,18 @@ mechanisms:
     `PATH` are all absent. Use **absolute paths** for every binary and file in a
     cron job (`/usr/bin/rsync`, not `rsync`), or set `PATH=` explicitly at the
     top of the crontab.
+  - **A script dropped into `/etc/cron.daily/` must have no dot in its name,
+    and must be executable.** Those directories are not read by cron directly —
+    `/etc/crontab` hands them to `run-parts`, which only runs files whose names
+    consist of letters, digits, underscores and hyphens. So the obvious
+    `backup.sh` is skipped, in complete silence: no error, no log line, nothing
+    to notice. Rename it to `backup` and `chmod +x` it. (Verified on Debian 12:
+    with `backup`, `backup.sh` and `backup.bak` all present and executable,
+    `run-parts --test` lists only `backup`.) Confirm before you walk away:
+
+    ```bash
+    run-parts --test /etc/cron.daily    # lists exactly the files that would run
+    ```
 - **systemd timers** — more modern, integrate with `systemctl status`/`journalctl`
   for easier debugging, and can express things like "run 5 minutes after boot"
   that plain cron can't. More setup (a `.service` + a `.timer` unit) for the
@@ -2814,10 +2847,6 @@ Two things follow from this:
   which is the whole reason to bother.
 
 Treat it as a rule rather than a judgment call: pin every job at creation time.
-This is the kind of thing you get bitten by exactly once — you spend an evening
-debugging a job whose output changed, find nothing wrong with the job, and
-eventually realise you changed a setting two weeks earlier in a different file.
-After that you never leave one unpinned again.
 
 ### More than one messaging channel is more than one exposure decision
 
