@@ -537,24 +537,30 @@ Two possible readings of that, and they point opposite ways:
   the working client resolved an IPv4 address and the failing one preferred
   IPv6.
 
-Also confirm what your services are even bound to — `[::]` means "all IPv6
-addresses", the routable one included. Match on the **local address column
+Also confirm what your services are even bound to. Two spellings mean "every
+interface" here: `[::]` (all IPv6 addresses, the routable one included) and a
+bare `*`, which is how `ss` renders a socket that is **not** v6-only and so
+accepts IPv4 as well. Match both, and match on the **local address column
 only**, not on the whole line:
 
 ```bash
-sudo ss -tulpnH | awk '$5 ~ /^\[::\]:/ {i=index($0,"users:"); print $1, $5, (i?substr($0,i):"-")}'
+sudo ss -tulpnH | awk '$5 ~ /^(\[::\]|\*):/ {i=index($0,"users:"); print $1, $5, (i?substr($0,i):"-")}'
 ```
 
-The obvious `sudo ss -tulpn | grep '\[::\]'` looks equivalent and is not: a
-listening socket prints `[::]:*` in its *peer* address column, so the grep also
-matches sockets bound to `[::1]` (loopback) or a link-local address and hands
-you a list roughly twice as long as the real one. (Verified on a Pi running
-Docker and Samba: 16 matching lines, of which only 7 were genuine wildcard
-binds.) `-H` drops the header so the column numbers are stable, `$5` is the
-local address, and everything from `users:` onward is the owning process — taken
-whole rather than as `$7`, because a process name with a space in it would
-otherwise be cut off mid-name (see
-[step 27](#27-a-checklist-to-verify-your-setup)).
+A pattern that looks for `[::]` alone misses the entire `*` half of the list —
+on a Pi running Docker, Samba, Ollama, a VNC server and a download client that
+is 7 matches instead of 24, with the most exposed services (an unauthenticated
+local-model API on `*:11434`, a remote desktop on `*:5900`) all in the missing
+17. The difference is `v6only`: `sudo ss -tulpneH` prints it per socket, and
+`v6only:0` is the one that renders as `*`.
+
+The other obvious spelling, `sudo ss -tulpn | grep '\[::\]'`, looks equivalent
+and is also wrong — in the other direction. A listening socket prints `[::]:*`
+in its *peer* address column, so the grep additionally matches sockets bound to
+`[::1]` (loopback) or a link-local address and hands you a list roughly twice as
+long as the real one. Anchoring the match on `$5`, the local address column, is
+what avoids that; [step 27](#27-a-checklist-to-verify-your-setup) explains the
+rest of that awk line, and adds `0.0.0.0` for a full audit.
 
 If you want a rule to cover both protocols, either drop the address scope
 (`sudo ufw allow 445/tcp` — but then it is open to the whole internet, so only
