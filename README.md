@@ -989,7 +989,7 @@ nano docker-compose.yml
 ```yaml
 services:
   uptime-kuma:
-    image: louislam/uptime-kuma:1
+    image: louislam/uptime-kuma:2
     container_name: uptime-kuma
     volumes:
       - ./data:/app/data
@@ -1005,6 +1005,19 @@ docker compose up -d
 ```
 
 - `up -d` starts the container in the background.
+- **Pin the major version (`:2`), and do not assume `:latest` is current.** For
+  this image `latest` still resolves to the 1.x line — checked with
+  `docker manifest inspect`, `louislam/uptime-kuma:latest` and
+  `louislam/uptime-kuma:1` return the identical digest, a v1 build from October
+  2025, while `:2` is a separate, actively-released line. That is a maintainer's
+  choice, not a bug, and other images make it differently — which is the point:
+  read the project's own install instructions for the tag it currently
+  recommends rather than reaching for `latest` by reflex. Pinning the major
+  version also means a `docker compose pull` picks up patch releases without
+  ever stepping you across a breaking change on its own. If you already run 1.x,
+  **back up `./data` and read the project's v1→v2 migration notes before
+  switching the tag** — a major version bump can rewrite the database in place,
+  and going back is not simply a matter of editing the tag again.
 - The `volumes:` line keeps the app's data in `./data` so it survives updates.
 - `restart: unless-stopped` brings it back automatically after a reboot or crash.
 - The `ports:` line deliberately binds to the Pi's own LAN address instead of
@@ -1608,13 +1621,12 @@ systemctl is-enabled ollama       # enabled
 ss -tulpn | grep 11434            # expect 127.0.0.1:11434 and nothing else
 ```
 
-Read that second line carefully rather than skimming it for the string
-`0.0.0.0`. `ss` renders a wildcard bind as **`*:11434`**, not as
-`0.0.0.0:11434` — so a service listening on every interface looks nothing like
-the address you were told to watch out for, and a quick glance can read as a
-pass. (Verified on Debian 12 with a deliberately wildcard-bound Ollama: the
-output line is `tcp LISTEN 0 4096 *:11434 *:*`.) Anything other than a literal
-`127.0.0.1` here means the API is reachable beyond the Pi itself.
+Read that second line rather than skimming it for the string `0.0.0.0`. A
+wildcard bind is usually rendered `*:11434` or `[::]:11434`, neither of which
+looks like the address you were told to watch out for — [step
+7](#7-set-up-a-firewall-ufw) explains why `ss` spells it three different ways.
+Anything other than a literal `127.0.0.1` here means the API is reachable beyond
+the Pi itself.
 
 Pull a model and try it:
 
