@@ -1087,7 +1087,7 @@ services:
       - ./db:/var/lib/mysql
 
   app:
-    image: nextcloud:latest
+    image: nextcloud:34          # pin the MAJOR version - see the note below
     container_name: nextcloud
     restart: unless-stopped
     depends_on:
@@ -1105,6 +1105,19 @@ services:
 ```
 
 - `depends_on` makes Docker start the database before the app.
+- **Pin the major version; do not use `:latest` here.** Nextcloud can only be
+  upgraded **one major version at a time** — its own documentation states this
+  explicitly. With `:latest`, a `docker compose pull` months from now can hand
+  you an image two or three majors ahead of the data in your volume, and the
+  container's startup script refuses the jump rather than migrating; you are then
+  stuck pinning backwards to the version you skipped and stepping up one at a
+  time. (Measured on Docker Hub: `nextcloud:latest` and `nextcloud:stable`
+  resolve to *different* digests — `latest` tracks the newest major, `stable`
+  trails it by one — so even the two "just keep it current" tags disagree.)
+  Pin the major you installed, let patch releases arrive on their own, and bump
+  the number by exactly one when you choose to upgrade. Reference: [Nextcloud
+  Docker — update to a newer
+  version](https://github.com/nextcloud/docker#update-to-a-newer-version).
 - The `ports:` line binds to the Pi's LAN address for the same reason as the
   Uptime Kuma example above — a bare `"8080:80"` would bypass ufw. If you later
   put Nextcloud behind a [tunnel](#11-reaching-your-pi-from-outside-home), the
@@ -1357,11 +1370,32 @@ underlying directory — `ls -ld /mnt/storage/shared` — before suspecting the
 Samba config.
 
 On another machine, connect to `\\<pi-ip>\shared` (Windows) or
-`smb://<pi-ip>/shared` (macOS/Linux). Keep Samba **LAN-only** — it has no
-business being reachable from the public internet, so don't open its ports (139,
-445) on a tunnel or router port-forward; ufw's default-deny-inbound from
-[step 7](#7-set-up-a-firewall-ufw) already covers this as long as you don't add
-an explicit allow rule for it beyond your local subnet.
+`smb://<pi-ip>/shared` (macOS/Linux) — but not until the firewall lets you.
+
+**Open the ports to your LAN, and only to your LAN.** `smbd` binds every
+interface (`0.0.0.0:445` and `0.0.0.0:139`), so what decides who can reach the
+share is your firewall, not the `valid users` line. The default-deny-inbound
+policy from [step 7](#7-set-up-a-firewall-ufw) means nothing reaches it at all
+until you say so — the right starting point, but it also means the share will
+simply never appear on your other machines until you add a scoped rule. ufw
+ships an app profile covering all four ports Samba uses, so you don't have to
+remember them:
+
+```bash
+sudo ufw app info Samba                              # 137,138/udp and 139,445/tcp
+sudo ufw allow from 192.168.1.0/24 to any app Samba  # your LAN subnet, never 'any'
+```
+
+Two things about that rule:
+
+- **Never widen it.** Port 445 is among the most scanned ports on the internet;
+  Samba has no business on a tunnel or a router port-forward. The subnet scope
+  *is* the security control here.
+- **It is IPv4-only**, because the CIDR is — see [step
+  7](#7-set-up-a-firewall-ufw). If the share works from one device and not
+  another, suspect this before the Samba config: a client that prefers IPv6 gets
+  no matching allow rule and is dropped, while its IPv4-resolving neighbour
+  connects fine.
 
 ## 14. Uptime monitoring and alerts
 
@@ -2242,23 +2276,20 @@ ignored, whatever the exit code says. (Verified on Debian 12 with logrotate
 3.21: mode `664`, and mode `644` owned by a non-root user, were both skipped
 while the command still exited 0.)
 
-No new timer is usually needed — most systems already run `logrotate` daily via
-a system timer or cron entry; a new config just needs to exist under
-`/etc/logrotate.d/` to be picked up on the next run. To check your rule without
-waiting for that run, do it in two steps:
+No new timer is needed — most systems already run `logrotate` daily via a system
+timer or cron entry, so a new config just has to exist in `/etc/logrotate.d/` to
+be picked up on the next run. Once the `-d` check above reports `Handling 1
+logs`, the rule is valid and live; there is nothing else to do but wait.
+
+If you want to see it rotate right now, force it:
 
 ```bash
-sudo logrotate -d /etc/logrotate.d/my-app    # dry run: says what it WOULD do
-sudo logrotate -f /etc/logrotate.d/my-app    # force: actually rotates, now
+sudo logrotate -f /etc/logrotate.d/my-app    # not a test: rotates for real, now
 ```
 
-`-d` is the safe one to reach for first — it parses the config, reports errors,
-and changes nothing on disk. `-f` is **not** a test: it performs a real
-rotation immediately, ignoring your `size`/`daily` conditions, and burns one of
-your `rotate N` slots. That is fine for a fresh rule, but running it against a
-system config out of curiosity will genuinely rotate live logs. Note also that
-`-d` implies debug output and skips the state file, so it does not tell you
-whether the *schedule* would have fired — only whether the rule is valid.
+`-f` ignores your `size`/`daily` conditions and burns one of the `rotate N`
+slots. Fine on a fresh rule you just wrote; against a system config, out of
+curiosity, it genuinely rotates live logs.
 
 **Don't forget the systemd journal — it's separate from `logrotate`.** Most
 service logs (anything shown by `journalctl`) are managed by `systemd-journald`,
