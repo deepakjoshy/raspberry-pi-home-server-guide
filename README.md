@@ -1202,10 +1202,9 @@ than vanishing into cron's mail. Note that `occ background:cron` is **not** a
 way to run the job — it is the command-line equivalent of the admin-settings
 switch above, i.e. it sets the *mode* and returns immediately.
 
-**7. Updating.** Nextcloud updates itself in-app for minor versions (via the
-web UI's update notification), but for major version jumps, pull the new image
-and follow Nextcloud's release notes — major upgrades sometimes require
-stepping through versions one at a time rather than skipping ahead:
+**7. Updating.** Because the major is pinned, `pull` brings patch releases only.
+For a major jump, bump the pinned number by exactly one — the one-at-a-time rule
+from the pin note above — and read that version's release notes first:
 
 ```bash
 docker compose pull app
@@ -1257,7 +1256,7 @@ nano docker-compose.yml
 ```yaml
 services:
   n8n:
-    image: docker.n8n.io/n8nio/n8n:latest
+    image: docker.n8n.io/n8nio/n8n:2.40.7   # pin a full version - see below
     container_name: n8n
     restart: unless-stopped
     ports:
@@ -1273,6 +1272,19 @@ services:
       - ./data:/home/node/.n8n
 ```
 
+- **Pin a full version here, not a major and not `latest`.** This image has no
+  major-only tag to pin to: `docker.n8n.io/n8nio/n8n:2` does not exist
+  (`no such manifest`, and the Docker Hub API returns 404 for it), so the
+  pin-the-major advice used for Nextcloud and Uptime Kuma above has nothing to
+  attach to. What *does* exist is a `:1` tag still serving the 1.x line and a
+  `:latest` that has already moved across a major boundary onto 2.x — checked
+  with `docker manifest inspect`, `:latest` and `:stable` return one digest and
+  `:1` a different one. Leaving `latest` in a compose file therefore means a
+  `docker compose pull` can hand you a breaking major with no warning. Look up
+  the current release and write the exact number, then bump it deliberately:
+  ```bash
+  docker manifest inspect docker.n8n.io/n8nio/n8n:latest | head -1   # tag resolves at all?
+  ```
 - Binding `ports:` to `<pi-ip>` instead of a bare `"5678:5678"` keeps this off
   every interface by default, same reasoning as the Uptime Kuma example above.
 - `N8N_HOST`/`N8N_WEBHOOK_URL` tell n8n what address to put in the webhook
@@ -1755,17 +1767,26 @@ instantly when a program needs it. A small "free" number with a healthy
 a swap partition. Don't assume a size — read the one you actually have:
 
 ```bash
-swapon --show                              # actual size in use right now
-grep -E '^CONF_(SWAPSIZE|MAXSWAP)' /etc/dphys-swapfile
+swapon --show                                      # actual size in use right now
+grep -E 'CONF_(SWAPSIZE|SWAPFACTOR|MAXSWAP)' /etc/dphys-swapfile
 ```
+
+**Don't anchor that grep to the start of the line.** On a stock image only
+`CONF_SWAPSIZE` is uncommented; the other settings are present as commented-out
+lines showing their defaults, so a `'^CONF_...'` pattern hides exactly the
+values you were trying to read and leaves you with one number and no context.
+(Verified on Raspberry Pi OS: the anchored form returns a single line.)
 
 The number varies by image and by how the file was sized, so figures quoted in
 older guides are unreliable. What is fixed is the *logic*: `CONF_SWAPSIZE` sets
 an absolute size in MB, and if it is left **empty** the size is computed as
 `CONF_SWAPFACTOR` (default 2) times your RAM — then clamped by `CONF_MAXSWAP`
 (default 2048 MB) and by `CONF_MAXDISK_PCT` (default 50% of the free space on
-the filesystem holding the file). So on an 8GB Pi the "computed" answer is not
-16GB; it is whichever of those two ceilings bites first. Changes take effect
+the filesystem holding the file). That last one is **not in the config file at
+all** — it is defined inside the `/sbin/dphys-swapfile` script itself, so
+grepping the config for it returns nothing and that absence means "default",
+not "unset". So on an 8GB Pi the "computed" answer is not 16GB; it is whichever
+of those two ceilings bites first. Changes take effect
 via `sudo dphys-swapfile swapoff && sudo dphys-swapfile setup && sudo
 dphys-swapfile swapon`, not by editing the file alone.
 
