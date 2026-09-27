@@ -1672,7 +1672,10 @@ wildcard bind is usually rendered `*:11434` or `[::]:11434`, neither of which
 looks like the address you were told to watch out for — [step
 7](#7-set-up-a-firewall-ufw) explains why `ss` spells it three different ways.
 Anything other than a literal `127.0.0.1` here means the API is reachable beyond
-the Pi itself.
+the Pi itself — and because Ollama has no authentication of any kind, that hands
+full use of it to anyone who can reach the port. Widen the bind (via
+`OLLAMA_HOST`) to your LAN or a [VPN](#11-reaching-your-pi-from-outside-home)
+only if you actually need to, and never to a public tunnel.
 
 Pull a model and try it:
 
@@ -1690,10 +1693,6 @@ GPU machine:
   marketed for desktop/workstation use. Expect noticeably slower responses
   than a cloud model; this is for lightweight local tasks, not a chat
   replacement for a hosted frontier model.
-- **Keep it loopback-only unless you have a specific reason not to.** Ollama's
-  API has no authentication at all, so a `0.0.0.0` bind hands anyone who can
-  reach the port full use of it — LAN or [VPN](#11-reaching-your-pi-from-outside-home)
-  only, never a public tunnel.
 - **It's just another API endpoint to your automation.** Anything that already
   talks to a cloud LLM API can usually point at `http://localhost:11434` instead
   for tasks that don't need a bigger model — handy for a scheduled job (see
@@ -2226,10 +2225,28 @@ zcat -f /var/log/apt/history.log* | grep "^Commandline:" \
 ```
 
 `zcat -f` reads the rotated `.gz` files and the current plain-text one in one
-command. Two caveats: this misses anything a vendor `install.sh`, `pip` or
-Docker put on the box without going through `apt`, and `history.log` rotates and
-is eventually deleted — so snapshot the output into the repo rather than
-trusting the log to still be there on the day you need it.
+command.
+
+Three caveats, the first of which is easy to miss because the command looks
+complete:
+
+- **It only sees packages installed from a command line.** Anything installed
+  through the desktop Add/Remove Software tool or the graphical updater goes
+  through **PackageKit**, which writes a `Commandline: packagekit
+  role='install-packages'` line carrying no package names at all — so the
+  filter above drops the entry entirely. (Verified on a Raspberry Pi OS desktop
+  image: `code` was installed that way, appears in the `apt-mark showmanual`
+  list two paragraphs above, and the replay command returns zero matches for
+  it.) The names for those entries are on the following `Install:` line
+  instead, so read both fields rather than the command line alone:
+  ```bash
+  zcat -f /var/log/apt/history.log* | awk '/^Commandline:/{c=$0} /^Install:/{print c; print}'
+  ```
+- **It misses anything that never went through `apt` at all** — a vendor
+  `install.sh`, `pip`, a language toolchain, or Docker.
+- **`history.log` rotates and is eventually deleted**, so snapshot the output
+  into the repo rather than trusting the log to still be there on the day you
+  need it.
 
 **What deliberately stays out:** private keys (`/etc/ssh/ssh_host_*_key`,
 `~/.ssh/id_*`), `.env` files, anything under a credentials directory, and
@@ -2529,9 +2546,22 @@ Three things about that list are easy to get wrong:
 - **User timers need your own session bus, so `sudo systemctl --user` does not
   work** — it fails with `Failed to connect to bus: No medium found`. Run the
   `--user` query as the owning user. Related: a user-level service or timer only
-  survives you logging out if lingering is on; check with
-  `loginctl show-user <username> -p Linger` and enable it with
-  `sudo loginctl enable-linger <username>`.
+  survives you logging out if lingering is on. Check that with a plain file
+  test, and enable it with `sudo loginctl enable-linger <username>`:
+  ```bash
+  test -e /var/lib/systemd/linger/<username> && echo "linger on" || echo "linger OFF"
+  ```
+  `loginctl show-user <username> -p Linger` is the documented-looking form and
+  the wrong one for this question. When the user has neither a live session nor
+  lingering — the exact state you are checking for — it does not print
+  `Linger=no`; it **exits 1** with `Failed to get user: User ID <n> is not
+  logged in or lingering`, which reads like a broken command rather than an
+  answer, and a script testing its exit code will call a healthy machine
+  broken. (Verified on Debian 12 against several non-lingering users.) The
+  directory above is world-readable, so the file test needs no `sudo`.
+  `loginctl list-users` has a `LINGER` column too, but it lists only users who
+  currently have a session or lingering, so a missing user is an answer you
+  have to infer rather than read.
 
 For each job you find, answer two questions: *does this still need to run*, and
 *would I find out if it stopped*. Delete the ones that have outlived their
