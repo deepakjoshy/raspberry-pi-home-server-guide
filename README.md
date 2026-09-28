@@ -2828,7 +2828,7 @@ implementation — commonly [faster-whisper](https://github.com/SYSTRAN/faster-w
 a reimplementation that is several times quicker on CPU than the original:
 
 ```bash
-python3 -m venv ~/.venvs/whisper
+python3 -m venv ~/.venvs/whisper          # needs python3-venv installed - see below
 ~/.venvs/whisper/bin/pip install faster-whisper
 ```
 
@@ -2841,6 +2841,16 @@ Python 3.11.) Resist `--break-system-packages`: it lets pip overwrite packages
 `apt` also manages, which is how you end up with a Pi whose system tools stop
 importing. If your agent bundles transcription it has usually built its own
 virtual environment already — check before making a second one.
+
+**The `venv` module needs a separate package on Debian.** `python3 -m venv` is
+in the standard library, but the pieces it needs to seed pip live in
+`python3-venv`, priority `optional` — present on a desktop image, not
+guaranteed on Raspberry Pi OS Lite, which is the image
+[step 3](#3-flash-and-install-the-os) recommends. Without it the command above
+does not fail at import time: it half-creates the directory, prints `The
+virtual environment was not created successfully because ensurepip is not
+available` along with the `apt install` line that fixes it, and exits 1. Check
+ahead of time with `dpkg -s python3-venv`.
 
 Models download automatically on first use. **The default is usually the `base`
 model, and upgrading it is the single highest-value tweak here** — technical
@@ -3007,11 +3017,10 @@ primary one, so the approval path and the alert path stay the same place.
 - **Expect to correct it.** The setup above is not one-time configuration; it's
   a feedback loop. Every wrong assumption it makes is a line to add to the
   constitution, the memory file, or a skill.
-
-> **If you expose its web or chat interface, that is a fresh exposure decision**
-> under [step 11](#11-reaching-your-pi-from-outside-home) — and a higher-stakes
-> one than usual, because the thing behind the hostname has a shell on your
-> server. Put it behind a VPN or an auth gate; never publish it bare.
+- **Never publish its web interface bare.** Exposing it is a fresh exposure
+  decision under [step 11](#11-reaching-your-pi-from-outside-home), for the
+  same reason as the gateway discussion above — the thing behind the hostname
+  has a shell on your server. Put it behind a VPN or an auth gate.
 
 ## 26. A tiered approval model for automation
 
@@ -3239,6 +3248,21 @@ expect to be running, not just the statuses printed.
 
 Any container showing `Restarting` is crash-looping, not running — and if one
 keeps dying without an obvious log reason, check for an OOM kill (step 18).
+
+**One `systemctl --failed` entry is nearly universal and is not your fault:**
+`NetworkManager-wait-online.service`. It is a boot-ordering barrier that waits
+for NetworkManager to declare startup complete, and it exits 1 when its
+60-second budget runs out. On a Pi with a configured-but-absent Wi-Fi profile —
+the normal state if you set up Wi-Fi during flashing and then plugged in
+ethernet — `wlan0` never reaches a conclusive state, so the wait times out even
+though the network itself came up fine. (Verified on a Pi 5: the unit failed at
+boot while `eth0` was `connected` and every service on the box was reachable.)
+Nothing downstream of `network-online.target` is harmed; it just delays boot by
+a minute. Confirm that is what you are looking at before chasing it:
+
+```bash
+nmcli -t -f DEVICE,STATE device     # is your real interface "connected"?
+```
 
 **The two checks nothing on this list can do for you**
 
