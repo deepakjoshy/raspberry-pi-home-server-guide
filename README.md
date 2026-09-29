@@ -1359,9 +1359,33 @@ touching the running service:
 testparm -s
 ```
 
-If it prints your share stanza back without complaint, the syntax is good.
-(`-s` skips the "Press enter to see a dump of your service definitions" prompt
-that plain `testparm` stops at, which is also what lets you use it in a script.)
+If it prints your share stanza back and ends with `Loaded services file OK.`,
+the syntax is good. (`-s` skips the "Press enter to see a dump of your service
+definitions" prompt that plain `testparm` stops at, which is also what lets you
+use it in a script.)
+
+**Read the whole output, and compare the echoed stanza against what you wrote.**
+A misspelled *parameter name* — `valid usres` instead of `valid users`, say —
+does not fail the check. `testparm` prints `Unknown parameter encountered:
+"valid usres"` and `Ignoring unknown parameter`, then still says `Loaded
+services file OK.` and **exits 0**; the stanza it echoes back simply comes
+without that line. So the share loads, Samba starts, and the access restriction
+you thought you wrote is not there. Only a malformed *value* (a non-boolean for
+`read only`, say) produces `Error loading services.` and a non-zero exit. Two
+consequences:
+
+- **Diagnostics go to stderr, the stanza dump to stdout.** So
+  `testparm -s 2>/dev/null` discards every warning above and leaves a
+  clean-looking dump; `testparm -s >/dev/null` is the useful inverse when you
+  only want the complaints.
+- **In a script, test for the warning rather than the exit code**, since the
+  likeliest typo exits 0:
+  ```bash
+  testparm -s /etc/samba/smb.conf 2>&1 >/dev/null | grep -q 'Unknown parameter' \
+    && echo "typo in smb.conf - a line you wrote is being ignored"
+  ```
+
+(Verified on Debian 12 with Samba 4.17.)
 Then set a Samba password for your user — separate from their Linux login
 password — and have `smbd` pick up the new share:
 
@@ -1898,7 +1922,7 @@ mkdir -p ~/apps/caddy && cd ~/apps/caddy
 ```yaml
 services:
   caddy:
-    image: caddy:latest
+    image: caddy:2
     container_name: caddy
     restart: unless-stopped
     ports:
@@ -1926,6 +1950,15 @@ uptime.home.example.com {
 }
 ```
 
+The tag is pinned to the major version for the same reason as every other
+compose file in this guide (see [step 12](#12-running-services-with-docker)): a
+reverse proxy is the one container whose config syntax you least want changing
+underneath you, since a proxy that will not parse its `Caddyfile` takes every
+app behind it offline at once. As it happens `caddy:latest` and `caddy:2`
+resolve to the same digest today — but that is a fact with an expiry date,
+which is exactly the problem with writing `latest` in a file you will not read
+again for a year.
+
 Then `docker compose up -d`. To put an app behind the proxy, each app's compose
 file needs **both** halves — the service joins the network, *and* the network is
 declared as external so Compose attaches to the existing one instead of trying
@@ -1951,7 +1984,9 @@ Points that are easy to get wrong:
   whose host path does not exist yet is created by Docker as an **empty
   directory**, not a file — so Caddy starts, finds a directory where its config
   should be, and serves nothing. If you see that, `docker compose down`, remove
-  the stray directory, write the real file, and start again. This applies to
+  the stray directory, write the real file, and start again — and note that
+  Docker creates that directory owned by **root**, so clearing it out of your
+  own home directory still needs `sudo rmdir ./Caddyfile`. This applies to
   every single-file bind mount, not just Caddy's.
 - **The proxy only helps if the apps stop publishing their own ports.** Once
   Caddy can reach a container over the shared network, remove that container's
