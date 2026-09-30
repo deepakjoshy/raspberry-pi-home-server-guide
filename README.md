@@ -686,8 +686,10 @@ interface's own address and netmask, and if you don't say which one,
 `arp-scan` chooses for you — the lowest-numbered configured, up, non-loopback
 interface. That is usually the right answer on a Pi, because `eth0` and
 `wlan0` exist from boot and get lower interface indexes than anything Docker
-or a VPN creates later. (On a Pi running Docker, Tailscale and four container
-bridges: `eth0` is index 2, `docker0` index 5 — so `eth0` wins.) It stops
+or a VPN creates later. (`ip -o link` prints every interface with its index: on
+a Pi running Docker, Tailscale and several container bridges, `eth0` is index 2
+and every Docker or VPN interface sits above it, so `eth0` wins. The exact
+numbers move as containers come and go; the ordering does not.) It stops
 being the right answer the moment your LAN interface is **down** — a Wi-Fi Pi
 with an unused `eth0`, or a cable unplugged — because then the first *up*
 interface really is `docker0` (`172.17.0.0/16`) or a tunnel, and the scan
@@ -2144,8 +2146,10 @@ A home server is only as safe as its backups. Build these habits early:
   with a `--since`: as [step 18](#18-memory-swap-and-container-resource-limits)
   explains, `-k` implies `-b` and silently clamps the answer to the current
   boot, so the reboot you were trying to explain is on the other side of that
-  boundary. (Measured on a Pi: 2,776 lines versus 31,766 for the same one-week
-  window.)
+  boundary. (Measured on a Pi that had been running about a day: for the same
+  one-week window the `-k` form returned roughly a sixth as many lines, with
+  everything before the most recent boot simply missing. The shorter the
+  current uptime, the bigger the hole.)
   Don't be surprised if an SD card needs replacing after a year or two of heavy
   24/7 writes — this is why an SSD is worth it for busy setups.
 - **Keep a running TODO list** of unfinished items. A home server is rarely
@@ -2168,9 +2172,12 @@ sudo du -xh --max-depth=1 /var | sort -h | tail -10
 report their size as yours. Run it with `sudo` for anything outside your home
 directory: without it `du` skips unreadable directories, prints a **smaller
 total anyway**, and exits `1` — so an un-elevated scan can under-report a
-problem area by gigabytes while looking like a normal answer. If you'd rather
-browse than read totals, `sudo apt install ncdu` gives an interactive version
-(`sudo ncdu -x /`).
+problem area by gigabytes while looking like a normal answer. (Measured on a
+Pi: `du -x --summarize /var` reported 2.3GB as an ordinary user and 7.5GB
+under `sudo` — a 5GB hole, with nothing but the exit code to hint at it.)
+
+If you'd rather browse than read totals, `sudo apt install ncdu` gives an
+interactive version (`sudo ncdu -x /`).
 
 The usual big four on a Pi, and how to reclaim each safely:
 
@@ -3168,8 +3175,10 @@ register a process name containing a space (`Plex Media Serv`,
 `Plex Tuner Serv`), so a plain `print $7` chops the name at the first space and
 prints `users:(("Plex` — dropping the PID and the rest of the identity, which is
 the whole reason you ran the command. Taking everything from `users:` onward
-keeps the owner intact whatever it's called. (Verified on a Pi running Docker,
-Samba and Plex: `$7` truncated 6 of 20 lines.)
+keeps the owner intact whatever it's called. (Measured twice on the same Pi as
+its service list changed: `$7` truncated 6 of 20 wildcard lines on one run and
+7 of 47 on another — the proportion moves with what you happen to be running,
+the breakage does not.)
 
 Read that list against the services you meant to publish. On a Pi running
 Docker, Samba and a media server it is long and most of it is expected — the
@@ -3429,7 +3438,9 @@ nmcli -t -f DEVICE,STATE device     # is your real interface "connected"?
 - [Ollama](https://ollama.com/)
 - [Hermes agent](https://github.com/NousResearch/hermes-agent)
 - [Caddy documentation](https://caddyserver.com/docs/)
-- [logrotate(8) manual](https://linux.die.net/man/8/logrotate)
+- [logrotate(8) manual](https://manpages.debian.org/bookworm/logrotate/logrotate.8.en.html)
+  — Debian 12's own copy, logrotate 3.21, which is the version the taboo-suffix
+  and file-permission behaviour in [step 22](#22-log-management) was verified against
 - [journald.conf(5) — journal size and persistence](https://www.freedesktop.org/software/systemd/man/latest/journald.conf.html)
 - [r/homelab](https://www.reddit.com/r/homelab/) and r/selfhosted for community
   setups and troubleshooting
