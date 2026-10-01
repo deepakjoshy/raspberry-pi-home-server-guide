@@ -436,12 +436,18 @@ network if it doesn't need to be broadly reachable:
 sudo ufw allow from 192.168.1.0/24 to any port 8096
 ```
 
-You can scope a rule to a **single client**, not just a whole subnet — handy
-for a service that only one other device (e.g. a VPN peer) should reach:
+A `from` clause accepts a single address as readily as a subnet, so you can
+scope a rule to **one machine** or to a whole trusted range:
 
 ```bash
-sudo ufw allow from 100.64.0.0/10 to any port 3001   # Tailscale-only access
+sudo ufw allow from 192.168.1.50 to any port 3001     # that one device, nothing else
+sudo ufw allow from 100.64.0.0/10 to any port 3001    # anything on your tailnet
 ```
+
+Be clear which you are writing. `100.64.0.0/10` is the shared address range
+Tailscale allocates from, so the second rule admits *every* device on your
+tailnet, not one peer — usually what you want for VPN-only access, but it is a
+range, not a single client.
 
 **Important:** ufw only filters **direct inbound** traffic. Tunnels and VPNs
 (next section) make **outbound** connections, so they bypass these inbound
@@ -463,7 +469,7 @@ only. A container using `network_mode: host` (or ipvlan/macvlan) gets no Docker
 firewall rules at all and is filtered by ufw exactly like any other process on
 the host — see the media-server example in
 [step 15](#15-download-clients-and-media-libraries).
-References: [ufw docs](https://help.ubuntu.com/community/UFW),
+References: [ufw(8) manual](https://manpages.debian.org/bookworm/ufw/ufw.8.en.html),
 [Docker packet filtering](https://docs.docker.com/engine/network/packet-filtering-firewalls/).
 
 **And the mirror image — containers are not on your LAN.** When a container
@@ -1633,7 +1639,7 @@ nano docker-compose.yml
 ```yaml
 services:
   plex:
-    image: lscr.io/linuxserver/plex:latest
+    image: lscr.io/linuxserver/plex:1.43.4
     container_name: plex
     network_mode: host
     environment:
@@ -1647,6 +1653,12 @@ services:
     restart: unless-stopped
 ```
 
+- **Pin the version instead of `:latest`,** for the reasons given in
+  [step 12](#12-running-services-with-docker). LinuxServer.io tags each build
+  with its upstream version, so there is a real tag to pin to — at the time of
+  writing `1.43.4`, `version-1.43.4.10903-e5521bd8c` and `latest` all name the
+  same image. There is no major-only tag (`:1`) to hide behind here, so check
+  the registry for the current version and bump it deliberately.
 - `network_mode: host` shares the Pi's own network stack directly with the
   container — no `ports:` mapping needed, but it also means the container isn't
   isolated from your LAN the way a normally-networked container is. Keep this
@@ -3429,7 +3441,10 @@ nmcli -t -f DEVICE,STATE device     # is your real interface "connected"?
 - [Docker Compose docs](https://docs.docker.com/compose/)
 - [DigitalOcean: SSH key-based authentication](https://www.digitalocean.com/community/tutorials/how-to-configure-ssh-key-based-authentication-on-a-linux-server)
 - [fail2ban](https://github.com/fail2ban/fail2ban)
-- [ufw (Uncomplicated Firewall)](https://help.ubuntu.com/community/UFW)
+- [ufw(8) manual (Debian 12)](https://manpages.debian.org/bookworm/ufw/ufw.8.en.html)
+  and [Ubuntu Server docs — firewalls](https://documentation.ubuntu.com/server/how-to/security/firewalls/)
+  — the long-standing `help.ubuntu.com/community/UFW` page these replace is
+  no longer served (the whole host returns 503), so older guides linking it are dead ends
 - [unattended-upgrades (Debian wiki)](https://wiki.debian.org/UnattendedUpgrades)
 - [Samba documentation](https://www.samba.org/samba/docs/)
 - [Uptime Kuma](https://github.com/louislam/uptime-kuma)
