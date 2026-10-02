@@ -2675,8 +2675,15 @@ curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
 
 As with any `curl | bash` installer, read the script first if you'd rather not
 run an unreviewed remote script — the same caution as the Docker and Ollama
-installers earlier. It pulls in Python 3.11, Node.js, and its own dependencies,
-then walks you through provider and messaging setup:
+installers earlier. **It does not install into your system Python.** The script
+fetches [`uv`](https://github.com/astral-sh/uv), provisions the interpreter
+version the project pins into its own directory, and pulls Node.js and the rest
+of its dependencies in there too — so it cannot disturb the `apt`-managed Python
+the OS depends on (the same boundary the PEP 668 guard further down exists to
+protect), and `python3 -V` on the host tells you nothing about what the agent is
+running. (Verified against the current install script, on a Pi where the agent
+runs Python 3.14 while the system `python3` is Debian 12 stock 3.11.2.) It then
+walks you through provider and messaging setup:
 
 ```bash
 hermes setup          # interactive: model provider, API key, messaging platform
@@ -2812,6 +2819,11 @@ mountpoint -q /mnt/backup || { echo "backup drive not mounted - aborting"; exit 
 rsync -av --delete --exclude '.env' --exclude 'logs/' \
   ~/.hermes/ /mnt/backup/hermes-state/
 ```
+
+That `mountpoint` guard is the bare minimum. This is a `--delete` mirror, so it
+has exactly the full-destination failure described in
+[step 20](#20-backups-and-maintenance) — put the free-space pre-flight from
+there in front of it too.
 
 Two decisions to make deliberately:
 
