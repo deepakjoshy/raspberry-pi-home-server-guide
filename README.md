@@ -1014,13 +1014,18 @@ docker compose up -d
 
 - `up -d` starts the container in the background.
 - **Pin the major version (`:2`), and do not assume `:latest` is current.** For
-  this image `latest` still resolves to the 1.x line — checked with
+  this image `latest` still resolves to the **1.x** line — checked with
   `docker manifest inspect`, `louislam/uptime-kuma:latest` and
-  `louislam/uptime-kuma:1` return the identical digest, a v1 build from October
-  2025, while `:2` is a separate, actively-released line. That is a maintainer's
-  choice, not a bug, and other images make it differently — which is the point:
-  read the project's own install instructions for the tag it currently
-  recommends rather than reaching for `latest` by reflex. Pinning the major
+  `louislam/uptime-kuma:1` return the identical digest, distinct from `:2`.
+  Upstream has been releasing only 2.x for some time (the newest 1.x *release*
+  is 1.23.17, October 2025), yet the `1`/`latest` images are still periodically
+  rebuilt — so **Docker Hub's "Last updated" is a push date, not a release
+  date**, and a tag can look freshly maintained while carrying year-old
+  application code. Check the project's releases page, not the registry
+  timestamp. That `latest` points at the older line is a maintainer's choice,
+  not a bug, and other images make it differently — which is the point: read
+  the project's own install instructions for the tag it currently recommends
+  rather than reaching for `latest` by reflex. Pinning the major
   version also means a `docker compose pull` picks up patch releases without
   ever stepping you across a breaking change on its own. If you already run 1.x,
   **back up `./data` and read the project's v1→v2 migration notes before
@@ -2489,14 +2494,12 @@ vacuum. The pattern is the same regardless of the specific device:
    against an India-specific endpoint) — a call that mysteriously 404s or
    401s against the "obvious" global endpoint is often exactly this, not a
    credentials problem.
-
-**A related pattern if you run an AI agent for home automation:** don't assume
-a bundled capability does everything its name implies. A search backend that
-finds pages but cannot fetch their contents typically fails with a generic
-error rather than "not supported", so it goes unnoticed until you read the
-logs. The fix is the same third-party-API pattern as above — swap in a
-purpose-built API and then confirm the previously-failing calls actually
-succeed, rather than assuming a config change was the fix.
+6. **Don't assume a bundled integration does what its name implies**, and
+   don't treat a config change as the fix until you have watched the
+   previously-failing call succeed. Partial support usually surfaces as a
+   generic error rather than "not supported", so it hides in the logs — the
+   same trap as
+   [a check that cannot fail](#a-check-that-cannot-fail-is-not-a-check).
 
 Run the poller as its own [scheduled job](#24-task-automation-and-scheduled-jobs),
 keep its credentials in a permissions-locked env file (not committed to git —
