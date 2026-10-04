@@ -1323,10 +1323,10 @@ Mac/Windows). Two ways to fix it:
 - Or find the bridge network's gateway IP directly (`docker network inspect
   <network-name> | grep Gateway`, commonly `172.x.x.1`) and use that.
 
-Either way, if the host service is firewalled with ufw, container traffic
-arrives from the Docker bridge subnet, **not** your LAN CIDR — it needs its
-own `ufw allow` rule for that subnet, or the container's requests will hang
-looking like a firewall problem rather than a config one.
+Either way, if the host service is firewalled, remember it sees the container's
+bridge subnet rather than your LAN, so it needs its own `ufw allow` rule — see
+[step 7](#7-set-up-a-firewall-ufw), which also covers how to confirm the
+firewall is what dropped a request.
 
 **3. If you expose it beyond your LAN, raise the bar.** n8n's own login is
 the only thing standing between the internet and a tool that can execute
@@ -2160,13 +2160,9 @@ A home server is only as safe as its backups. Build these habits early:
   covers the current boot. For longer history use
   `journalctl _TRANSPORT=kernel -p warning --since "1 week ago"` (needs a
   persistent journal — see [step 22](#22-log-management)). Not `journalctl -k`
-  with a `--since`: as [step 18](#18-memory-swap-and-container-resource-limits)
-  explains, `-k` implies `-b` and silently clamps the answer to the current
-  boot, so the reboot you were trying to explain is on the other side of that
-  boundary. (Measured on a Pi that had been running about a day: for the same
-  one-week window the `-k` form returned roughly a sixth as many lines, with
-  everything before the most recent boot simply missing. The shorter the
-  current uptime, the bigger the hole.)
+  with a `--since`: `-k` implies `-b`, so the answer is silently clamped to the
+  current boot and the reboot you were trying to explain falls outside it — see
+  [step 18](#18-memory-swap-and-container-resource-limits).
   Don't be surprised if an SD card needs replacing after a year or two of heavy
   24/7 writes — this is why an SSD is worth it for busy setups.
 - **Keep a running TODO list** of unfinished items. A home server is rarely
