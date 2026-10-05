@@ -1422,8 +1422,15 @@ On another machine, connect to `\\<pi-ip>\shared` (Windows) or
 `smb://<pi-ip>/shared` (macOS/Linux) — but not until the firewall lets you.
 
 **Open the ports to your LAN, and only to your LAN.** `smbd` binds every
-interface (`0.0.0.0:445` and `0.0.0.0:139`), so what decides who can reach the
-share is your firewall, not the `valid users` line. The default-deny-inbound
+interface, so what decides who can reach the share is your firewall, not the
+`valid users` line. It opens **four** listening sockets to do that, not two — a
+separate IPv4 and IPv6 one per port: `0.0.0.0:139`, `0.0.0.0:445`, `[::]:139`,
+`[::]:445`. The IPv6 pair is `v6only:1`, i.e. genuinely independent sockets
+rather than the single dual-stack `*:445` shape that
+[step 7](#7-set-up-a-firewall-ufw) describes. (Verified on Debian 12 with
+`sudo ss -tulpne`.) That is what makes the IPv6 caveat below concrete rather
+than theoretical: the share really is listening on IPv6, so a client arriving
+that way is stopped only by your firewall policy. The default-deny-inbound
 policy from [step 7](#7-set-up-a-firewall-ufw) means nothing reaches it at all
 until you say so — the right starting point, but it also means the share will
 simply never appear on your other machines until you add a scoped rule. ufw
@@ -1706,8 +1713,8 @@ default — **not** your LAN or the internet — which is the right default for 
 API with no built-in authentication of its own. Confirm both:
 
 ```bash
-systemctl is-enabled ollama       # enabled
-ss -tulpn | grep 11434            # expect 127.0.0.1:11434 and nothing else
+systemctl is-enabled ollama        # enabled
+sudo ss -tulpn | grep 11434        # expect 127.0.0.1:11434 and nothing else
 ```
 
 Read that second line rather than skimming it for the string `0.0.0.0`. A
@@ -1716,9 +1723,27 @@ looks like the address you were told to watch out for — [step
 7](#7-set-up-a-firewall-ufw) explains why `ss` spells it three different ways.
 Anything other than a literal `127.0.0.1` here means the API is reachable beyond
 the Pi itself — and because Ollama has no authentication of any kind, that hands
-full use of it to anyone who can reach the port. Widen the bind (via
-`OLLAMA_HOST`) to your LAN or a [VPN](#11-reaching-your-pi-from-outside-home)
-only if you actually need to, and never to a public tunnel.
+full use of it to anyone who can reach the port.
+
+**If you do need to widen it, `OLLAMA_HOST` is only half the job.** It takes a
+single bind address — `127.0.0.1`, one interface's IP, or `0.0.0.0` for every
+interface — and has no notion of an allowed range, so deciding *who* may reach
+the API is entirely your firewall's job:
+
+```bash
+sudo ufw allow from 192.168.1.0/24 to any port 11434 proto tcp comment 'Ollama-LAN'
+```
+
+Don't try to express the subnet in the variable instead. A CIDR there is not
+rejected as a mistake: Ollama takes the network address out of it, **discards
+the port you specified**, and exits with
+`listen tcp 192.168.1.0:11434: bind: cannot assign requested address` — an error
+about an unassignable address, which reads like a networking fault rather than
+the syntax error it is. (Verified: a `<subnet>/24:11500` value failed on port
+`11434`, the default, not on the port given in the string.) If the client is a
+container rather than another machine, it arrives from a Docker bridge subnet
+and needs its own rule ([step 7](#7-set-up-a-firewall-ufw)). Never point any of
+this at a public tunnel.
 
 Pull a model and try it:
 
