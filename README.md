@@ -1824,6 +1824,14 @@ ps -eo pid,comm,rss --sort=-rss | head     # the biggest processes, by resident 
 docker stats --no-stream                   # per-container CPU and memory
 ```
 
+**One Pi-specific caveat on that last command.** On a stock Raspberry Pi OS
+install, `docker stats` prints `0B / 0B` and `0.00%` in its memory columns for
+**every** container, because the kernel's memory cgroup controller is disabled
+by default — the trap described further down this section. The CPU figures are
+still real, but until you enable that controller the memory question has to be
+answered with `ps`/`free` above. (Verified on a Pi 5 with six running
+containers: all six reported `0B / 0B`.)
+
 Read the **available** column of `free -h`, not **free**: Linux deliberately
 spends unused RAM on disk cache (the `buff/cache` column), which it hands back
 instantly when a program needs it. A small "free" number with a healthy
@@ -3206,13 +3214,11 @@ sudo ss -tulpn                    # every listening port, and what owns it
 ```
 
 Look for anything listening on a wildcard address that you did not intend to
-publish — that's the single most useful line in this checklist. Note that `ss`
-writes a wildcard bind several ways depending on the socket: `0.0.0.0`, a bare
-`*`, and `[::]` (all IPv6 addresses, which on Linux usually accepts IPv4 too)
-all mean "every interface". Grepping only for `0.0.0.0` misses the other two,
-so ask for all three at once — and only in the *local* address column, since
-the peer column of a listening socket is a wildcard on every socket and will
-match anything:
+publish — that's the single most useful line in this checklist. `ss` spells a
+wildcard bind three ways — `0.0.0.0`, a bare `*`, and `[::]` — so match all
+three at once, and only in the *local* address column;
+[step 7](#7-set-up-a-firewall-ufw) explains why each of those two points
+matters:
 
 ```bash
 sudo ss -tulpnH | awk '$5 ~ /^(0\.0\.0\.0|\*|\[::\]):/ {i=index($0,"users:"); print $1, $5, (i?substr($0,i):"-")}'
