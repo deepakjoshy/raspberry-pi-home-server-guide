@@ -2498,6 +2498,64 @@ journald; it will create `/var/log/journal/` for you. Mind the extra SD-card
 writes if you're microSD-based, and keep the `SystemMaxUse=` cap above in place
 either way.
 
+### Keep a job's log off the volume the job depends on
+
+A scheduled job's log matters most on the run that failed — and the obvious
+place to keep it is the one place it will not survive that run. If a backup
+script logs to `$BACKUP_ROOT/backup.log`, the log lives on the external drive,
+so the morning the drive does not mount there is no readable account of why the
+job gave up. The convenient path and the useful path are not the same path.
+
+There are two ways it goes wrong, and neither announces itself:
+
+- **The mountpoint still exists as an empty directory on the boot card.** The
+  redirect succeeds, so the abort message is written to the microSD *underneath*
+  the mountpoint — and then vanishes from view the next time the drive mounts,
+  because mounting a filesystem over a directory makes that directory's previous
+  contents invisible for as long as it stays mounted (`man 8 mount`: "the
+  previous contents ... become invisible"). The log is still on the card,
+  consuming the space you were protecting, and unreadable until you unmount.
+- **The path does not exist at all** — a mountpoint that was never created, or
+  an automount placeholder that disappeared with the device. Then the redirect
+  itself fails: `sh` prints `cannot create .../backup.log: Directory
+  nonexistent` and exits **2**, so the message is written nowhere. The shell's
+  complaint goes to stderr, which for a cron job means local mail you almost
+  certainly do not read.
+
+Put the log on the root filesystem and only the *data* on the drive:
+
+```bash
+LOG_FILE="$HOME/logs/mybackup.log"   # root filesystem, writable with or without the drive
+mkdir -p "$(dirname "$LOG_FILE")"
+exec >> "$LOG_FILE" 2>&1             # everything printed after this line is logged
+echo "$(date -Is) starting"
+mountpoint -q /mnt/backup || { echo "$(date -Is) backup drive not mounted - aborting"; exit 1; }
+```
+
+`exec >>` redirects the rest of the script once, which is both tidier and safer
+than appending `>> "$LOG_FILE"` to individual lines — a line you forget is a
+line whose output is lost. `/var/log/` is the conventional home for this but is
+root-owned and mode `755`, so a job running as your own user cannot write there
+until you create the file as root and `chown` it; a directory you already own
+avoids the problem entirely. Either way the log is now your boot disk's problem
+rather than the drive's, so give it a logrotate rule (see the top of this
+section).
+
+If you also want a copy on the drive — useful when the drive is what you carry
+to another machine — copy it there at the end of a successful run, rather than
+making it the only destination:
+
+```bash
+cp "$LOG_FILE" /mnt/backup/backup.log    # last line, after the work succeeded
+```
+
+The general question to ask of any unattended job: **if the thing this job
+depends on is missing, where does the explanation end up?** Answer it by
+testing, not by reading the script — unplug the drive (or point the script at a
+deliberately bogus destination), let it run, and confirm you can still read why
+it stopped. That is the same habit as
+[A check that cannot fail is not a check](#a-check-that-cannot-fail-is-not-a-check).
+
 ## 23. Integrating third-party device and cloud APIs
 
 Home servers aren't limited to software you install — a lot of useful
@@ -2594,7 +2652,9 @@ surprises:
   Abort loudly rather than proceeding on a bad assumption.
 - **Log what ran and what changed**, even briefly — when a job runs unattended
   for months, "what actually happened last Tuesday" needs to be answerable
-  without guessing.
+  without guessing. Keep that log somewhere it survives the failure it is
+  meant to explain — see [Keep a job's log off the volume the job depends
+  on](#keep-a-jobs-log-off-the-volume-the-job-depends-on).
 - **Give any autonomous job (script, or an AI agent driving one) a bounded
   scope and an explicit approval model** for anything beyond its routine
   purpose — see the next section. It's worth deciding this up front rather
