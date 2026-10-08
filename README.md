@@ -2293,6 +2293,28 @@ files. The safe shape is a plain repo somewhere you own, plus a script that
 | Scheduled jobs | `crontab -l`, `systemctl list-timers` output | See [the inventory sweep](#periodically-re-list-what-is-actually-scheduled) |
 | Installed packages | `apt-mark showmanual > packages.txt` | A starting point for a rebuild — see the caveat below |
 
+**Two of those files are root-only, which quietly breaks an automated snapshot.**
+`/etc/ufw/user.rules` and `/etc/ufw/user6.rules` are mode `640` `root:root`, so
+your own user cannot read them at all — verified on Debian 12: `wc -l` on either
+prints `Permission denied` and exits `1`, and plain `ufw status` answers
+`ERROR: You need to be root to run this script`. Every other path in the table
+above is world-readable, so this is the one row that fails.
+
+That matters because the shape recommended here is an unattended nightly job. A
+copy loop fails on just those two entries and — unless the failure happens to
+land on the last iteration — still exits `0`, so the job reports success while
+the repo silently never gains the firewall history the table promises.
+Redirecting the stderr of `cp` to `/dev/null`, the usual instinct in a cron job,
+removes the last clue.
+
+Either run the copy step under `sudo` (then `chown` the result back to yourself
+so you can commit it), or snapshot the rendered rules instead:
+`sudo ufw status numbered` reads better in a diff than the raw iptables-style
+file anyway. Whichever you pick, **check the exit status of every copy** and
+fail the run loudly rather than committing a partial snapshot. This is the same
+trap as the `sudo`-only crontab directory in
+[step 24](#periodically-re-list-what-is-actually-scheduled).
+
 `apt-mark showmanual` is the closest built-in thing to a rebuild list, but
 calibrate what it actually means. It lists every package that was *not* pulled
 in as a dependency of another package — which includes the entire base OS
