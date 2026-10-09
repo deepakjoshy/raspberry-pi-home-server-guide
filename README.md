@@ -3265,6 +3265,19 @@ A few details that matter:
 - **The revert command must be able to run without you.** It executes as root
   with no shell profile and no terminal, so use absolute paths and don't make it
   depend on anything interactive.
+- **Point the revert at the unit that actually holds the port.** The example
+  acts on `ssh.service`, which is right on Raspberry Pi OS — but where SSH is
+  socket-activated (Ubuntu 22.10 and later) the listening socket belongs to
+  `ssh.socket`, and the service form acts on something that was not listening.
+  Ask before you rely on the timer, and substitute the answer into the revert
+  command:
+  ```bash
+  systemctl is-enabled ssh.socket   # "disabled" (exit 1) on Raspberry Pi OS -> ssh.service is the one
+  ```
+  (Verified on Raspberry Pi OS/Debian 12: `ssh.socket` ships present but
+  disabled, and `ssh.service` owns port 22.) Same question as
+  [step 6](#6-secure-your-ssh-access) — and a revert that acts on the wrong unit
+  fails silently, which is the single outcome this pattern exists to prevent.
 - **Name the restore file exactly**, not with a wildcard. The timestamped
   `.bak.$(date ...)` convention used elsewhere in this guide is right for an
   archive, but a `cp /etc/ssh/sshd_config.bak.* ...` in the revert command breaks
