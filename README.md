@@ -510,7 +510,28 @@ ip -6 addr show scope global    # a 2xxx:/3xxx: address here means globally rout
 ping6 -c2 2606:4700:4700::1111  # and working v6 internet
 ```
 
-If you have one, note how `ufw` treats these two rules differently:
+**`scope global` does not mean internet-routable**, and on a Pi built from this
+guide that distinction is easy to trip over. If you took the Tailscale advice in
+[step 11](#11-reaching-your-pi-from-outside-home), that first command prints a
+*second* address — one on `tailscale0` from `fd7a:115c:a1e0::/48`. Anything in
+`fc00::/7` is a **unique local** address: it is labelled `scope global` only
+because it is not link-local, and it is reachable inside your own tailnet and
+nowhere else. Judge by the prefix and the interface, not by the scope label —
+only a `2xxx:`/`3xxx:` address on your **LAN** interface means the rest of this
+subsection applies to you. Adding `-brief` prints one address per line with the
+interface beside it, which makes the two hard to confuse:
+
+```bash
+ip -6 -brief addr show scope global
+```
+
+(Measured on a Pi 5 running Tailscale: two lines — `eth0` with a routable
+`2405:...` address, `tailscale0` with the `fd7a:...` one. Note also that the
+`ping6` test above succeeds via your ISP or not at all; a tailnet address does
+not carry it.)
+
+If you do have a routable prefix, note how `ufw` treats these two rules
+differently:
 
 ```bash
 sudo ufw allow 22/tcp                              # both IPv4 and IPv6
