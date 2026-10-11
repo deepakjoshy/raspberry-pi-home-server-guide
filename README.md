@@ -1591,12 +1591,26 @@ that aren't obvious the first time:
   ```bash
   sudo apt install qbittorrent-nox -y
   ```
-  Install the plain `qbittorrent` by mistake and you get a service that starts
-  and immediately aborts, because the GUI build has no display to draw on. The
-  give-away in the log is `qt.qpa.plugin: Could not load the Qt platform plugin
-  "xcb"` followed by `status=6/ABRT`, which reads like a broken install rather
-  than the wrong package. (Verified on Debian 12: both packages are version
-  `4.5.2-3+deb12u1`, and only the `-nox` one ships the `qbittorrent-nox` binary.)
+  Install the plain `qbittorrent` by mistake and, on a genuinely headless
+  machine, you get a service that starts and immediately aborts, because the
+  GUI build has no display to draw on. The give-away in the log is
+  `qt.qpa.plugin: Could not load the Qt platform plugin "xcb"` followed by
+  `status=6/ABRT`, which reads like a broken install rather than the wrong
+  package. (Verified on Debian 12: both packages are version
+  `4.5.2-3+deb12u1`, only the `-nox` one ships a `qbittorrent-nox` binary, and
+  *both* accept `--webui-port` — the display requirement is the whole
+  difference, not the flags.)
+  Note the "genuinely headless" qualifier. On a Pi running one of the desktop
+  images ([step 1](#1-what-you-need)) the GUI build **will** run as a user
+  service, if you hand it the logged-in session's display:
+  ```ini
+  Environment="WAYLAND_DISPLAY=wayland-0"
+  Environment="XDG_RUNTIME_DIR=/run/user/1000"
+  ```
+  It then works — and stops working whenever nobody is logged in at the
+  desktop. That is the worse of the two bugs, because it is intermittent rather
+  than obvious. A service meant to run 24/7 should not depend on a graphical
+  session at all, which is exactly what `-nox` buys you.
 - **Run it as its own service, not an ad-hoc terminal process**, so it survives
   reboots and crashes. A systemd **user** service is a good fit for something
   that only needs your own account's permissions:
@@ -1730,8 +1744,8 @@ rather not run unreviewed remote code as root.
 
 The installer creates and starts a systemd service (`ollama.service`) for you,
 so you do not need to enable it separately. It binds `localhost:11434` by
-default — **not** your LAN or the internet — which is the right default for an
-API with no built-in authentication of its own. Confirm both:
+default — **not** your LAN or the internet — which is the right default here.
+Confirm both:
 
 ```bash
 systemctl is-enabled ollama        # enabled
@@ -2115,6 +2129,30 @@ A home server is only as safe as its backups. Build these habits early:
   returns non-zero for a plain directory, so the job stops instead. Put the
   same guard in front of every scheduled job that writes to attached storage
   (see [step 27](#27-a-checklist-to-verify-your-setup)).
+
+  **One case where that guard lies: an automounted path.** If the drive is
+  handled by systemd's automount or `autofs` rather than a plain `fstab` entry
+  — which is what a desktop-flavoured Pi OS image does for removable media
+  under `/media` — then the mount point is *itself* a mounted autofs
+  filesystem. The guard passes with the drive physically unplugged, and only
+  the first real *read* fails. Verified on Debian 12 with the drive removed:
+
+  ```bash
+  mountpoint -q "/media/<user>/<label>"; echo $?            # 0  <-- false pass
+  findmnt -M "/media/<user>/<label>" -n -o FSTYPE           # autofs
+  findmnt -M "/media/<user>/<label>" -t noautofs; echo $?   # 1  <-- the honest answer
+  ls "/media/<user>/<label>"                                # ls: ... No such device
+  ```
+
+  Excluding that placeholder type is the one-line fix. Testing for a file you
+  know lives on the volume works too, and is independent of mount mechanism:
+
+  ```bash
+  findmnt -M /mnt/backup -t noautofs >/dev/null || { echo "backup drive not mounted - aborting"; exit 1; }
+  ```
+
+  Plain `fstab` mounts under `/mnt` are not affected — there `mountpoint -q`
+  is honest. Check which kind you have rather than assuming.
 
   **Guard free space too, not just the mount.** A backup drive fills up
   eventually — and a full destination is a nastier failure than an unmounted
@@ -3431,7 +3469,7 @@ remember scheduling** — cron and systemd hide them in five different places, a
 
 ```bash
 df -h                             # nothing near 100%
-findmnt -M /mnt/storage || echo "NOT MOUNTED"   # drive mounted, not an empty dir
+findmnt -M /mnt/storage -t noautofs || echo "NOT MOUNTED"   # really mounted, not an empty dir
 ls -lt /path/to/your/backups | head
 ```
 
@@ -3441,7 +3479,9 @@ a backup script writes happily into it, filling your SD card while appearing to
 succeed (step 20). Use `-M` (exact mountpoint), **not** `--target`: `--target`
 walks *up* to whichever filesystem contains the path, so on an unmounted
 `/mnt/storage` it cheerfully prints the root filesystem and exits 0 — the false
-pass you were trying to catch.
+pass you were trying to catch. `-t noautofs` closes the second false pass: an
+automounted path under `/media` is a mounted filesystem in its own right even
+with the drive unplugged (step 20).
 
 **Health**
 
