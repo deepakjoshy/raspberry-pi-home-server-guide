@@ -2610,7 +2610,7 @@ LOG_FILE="$HOME/logs/mybackup.log"   # root filesystem, writable with or without
 mkdir -p "$(dirname "$LOG_FILE")"
 exec >> "$LOG_FILE" 2>&1             # everything printed after this line is logged
 echo "$(date -Is) starting"
-mountpoint -q /mnt/backup || { echo "$(date -Is) backup drive not mounted - aborting"; exit 1; }
+findmnt -M /mnt/backup -t noautofs >/dev/null || { echo "$(date -Is) backup drive not mounted - aborting"; exit 1; }
 ```
 
 `exec >>` redirects the rest of the script once, which is both tidier and safer
@@ -2988,15 +2988,17 @@ So fold it into the routine you already have from
 [step 20](#20-backups-and-maintenance), alongside your app data:
 
 ```bash
-mountpoint -q /mnt/backup || { echo "backup drive not mounted - aborting"; exit 1; }
+findmnt -M /mnt/backup -t noautofs >/dev/null || { echo "backup drive not mounted - aborting"; exit 1; }
 rsync -av --delete --exclude '.env' --exclude 'logs/' \
   ~/.hermes/ /mnt/backup/hermes-state/
 ```
 
-That `mountpoint` guard is the bare minimum. This is a `--delete` mirror, so it
-has exactly the full-destination failure described in
-[step 20](#20-backups-and-maintenance) — put the free-space pre-flight from
-there in front of it too.
+That mount guard is the bare minimum, and it is deliberately the `findmnt … -t
+noautofs` form rather than `mountpoint -q`: on an automounted path the latter
+passes with the drive unplugged, which would mirror your agent's entire state
+directory onto the boot card (see [step 20](#20-backups-and-maintenance)). This
+is also a `--delete` mirror, so it has the full-destination failure described
+there — put the free-space pre-flight in front of it too.
 
 Two decisions to make deliberately:
 
