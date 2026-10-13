@@ -1635,16 +1635,20 @@ that aren't obvious the first time:
   ```
   `daemon-reload` is what makes systemd notice a unit file you just created.
   **Change the web UI password before anything else.** qBittorrent up to and
-  including 4.5.x ships a *hardcoded* default login (`admin` / `adminadmin`) —
+  including **4.6.0** ships a *hardcoded* default login (`admin` / `adminadmin`) —
   it is in the published source, so it is not a secret from anyone. Newer
-  releases (4.6.0+) dropped it in favour of printing a random one-off password
-  to the log on first start, which you then have to read and replace:
+  releases (4.6.1 and later) dropped it: when no password is set they print a
+  random temporary one to the log at **every** start, not just the first, and it
+  changes each time, so a missed line is only a restart away:
   ```bash
   journalctl --user -u qbittorrent | grep -i "temporary password"
   ```
   Either way, set your own under **Tools → Options → Web UI** on first login.
   Combined with the LAN-only rule below, that is the difference between a
-  download client and an open remote-code-execution endpoint.
+  download client and an open remote-code-execution endpoint. (Verified against
+  upstream source: the `adminadmin` default is still present in `release-4.6.0`
+  and gone in `release-4.6.1`, which is also where the temporary-password notice
+  appears; the Debian 12 package installed above is 4.5.2, so it has it.)
   Pick a web-UI port nothing else is already using: `8080` is a very common
   default and collides with the Nextcloud example in
   [step 12](#12-running-services-with-docker), so check first with
@@ -1927,8 +1931,7 @@ Note the `2>&1`: `docker info` prints its warnings to **stderr**, so the
 for and makes an affected Pi look healthy.
 
 If the warning prints, or `memory` is absent from the controller list, no
-memory limit you set is being enforced (a tell-tale symptom: `docker stats`
-reports `0B / 0B` for every container). To enable it, append
+memory limit you set is being enforced. To enable it, append
 `cgroup_memory=1 cgroup_enable=memory` to the kernel command line in
 `/boot/firmware/cmdline.txt` (`/boot/cmdline.txt` on Debian 11 and older
 images) and reboot.
