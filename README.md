@@ -686,8 +686,16 @@ without touching the running service, since this parses the whole config and
 starts nothing:
 
 ```bash
-sudo fail2ban-server --test    # prints "OK" or the error above
+sudo fail2ban-server --test    # exits 0 and prints the verdict on stdout
 ```
+
+A good config answers `OK: configuration test is successful`. On a stock Debian
+12 install that line is preceded by `WARNING 'allowipv6' not defined in
+'Definition'. Using default one: 'auto'` — that is the shipped
+`fail2ban.conf` reporting a setting it ships commented out, not a problem with
+your jail. It goes to **stderr** while the `OK:` line goes to stdout, so
+`2>/dev/null` leaves just the verdict and a script should test the exit code
+rather than grep the output. (Verified on Debian 12 with fail2ban 1.0.2.)
 
 Reference: [fail2ban
 docs](https://github.com/fail2ban/fail2ban).
@@ -2488,8 +2496,7 @@ while the command still exited 0.)
 
 No new timer is needed — most systems already run `logrotate` daily via a system
 timer or cron entry, so a new config just has to exist in `/etc/logrotate.d/` to
-be picked up on the next run. Once the `-d` check above reports `Handling 1
-logs`, the rule is valid and live; there is nothing else to do but wait.
+be picked up on the next run; there is nothing else to do but wait.
 
 If you want to see it rotate right now, force it:
 
