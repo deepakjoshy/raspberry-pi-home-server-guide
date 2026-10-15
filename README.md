@@ -1046,17 +1046,14 @@ docker compose up -d
   this image `latest` still resolves to the **1.x** line — checked with
   `docker manifest inspect`, `louislam/uptime-kuma:latest` and
   `louislam/uptime-kuma:1` return the identical digest, distinct from `:2`.
-  Upstream has been releasing only 2.x for some time (the newest 1.x *release*
-  is 1.23.17, October 2025), yet the `1`/`latest` images are still periodically
+  Upstream has released only 2.x for some time (the newest 1.x *release* is
+  1.23.17, October 2025), yet the `1`/`latest` images are still periodically
   rebuilt — so **Docker Hub's "Last updated" is a push date, not a release
   date**, and a tag can look freshly maintained while carrying year-old
-  application code. Check the project's releases page, not the registry
-  timestamp. That `latest` points at the older line is a maintainer's choice,
-  not a bug, and other images make it differently — which is the point: read
-  the project's own install instructions for the tag it currently recommends
-  rather than reaching for `latest` by reflex. Pinning the major
-  version also means a `docker compose pull` picks up patch releases without
-  ever stepping you across a breaking change on its own. If you already run 1.x,
+  application code. Read the project's own releases and install instructions
+  for the tag it recommends, rather than the registry timestamp or `latest` by
+  reflex. Pinning the major version also lets `docker compose pull` take patch
+  releases without stepping you across a breaking change. If you already run 1.x,
   **back up `./data` and read the project's v1→v2 migration notes before
   switching the tag** — a major version bump can rewrite the database in place,
   and going back is not simply a matter of editing the tag again.
@@ -3653,8 +3650,10 @@ nmcli -t -f DEVICE,STATE device     # is your real interface "connected"?
 - [fail2ban](https://github.com/fail2ban/fail2ban)
 - [ufw(8) manual (Debian 12)](https://manpages.debian.org/bookworm/ufw/ufw.8.en.html)
   and [Ubuntu Server docs — firewalls](https://documentation.ubuntu.com/server/how-to/security/firewalls/)
-  — the long-standing `help.ubuntu.com/community/UFW` page these replace is
-  no longer served (the whole host returns 503), so older guides linking it are dead ends
+  — the long-standing `help.ubuntu.com/community/UFW` link these replace still
+  works: it 301-redirects to [wiki.ubuntu.com/UFW](https://wiki.ubuntu.com/UFW).
+  That page is community-maintained and older than the two above, so prefer
+  these when they disagree
 - [unattended-upgrades (Debian wiki)](https://wiki.debian.org/UnattendedUpgrades)
 - [Samba documentation](https://www.samba.org/samba/docs/)
 - [Uptime Kuma](https://github.com/louislam/uptime-kuma)
