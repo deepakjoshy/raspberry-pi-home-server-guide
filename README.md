@@ -10,7 +10,11 @@ gives you the **actual command to run** and a plain-English explanation of
 > (Cloudflare Tunnel, Tailscale, Docker, ufw, fail2ban) are the ones actually
 > used and tested on Debian 12 (Bookworm), 64-bit — treat them as recommended
 > defaults, not the only options. Where a step involves a real choice,
-> alternatives are noted.
+> alternatives are noted. Note that the current Raspberry Pi OS image is now
+> built on **Debian 13 (Trixie)**, so a fresh install today is one release
+> ahead of where these commands were verified; the shape of each step holds,
+> but check version-specific details (package versions, default config paths)
+> against your own system rather than assuming.
 >
 > That server is administered day to day by an **AI ops agent**
 > ([Hermes](https://github.com/NousResearch/hermes-agent)) running on the Pi
@@ -106,11 +110,18 @@ A shopping/checklist before you start:
 
 You do **not** need a monitor, keyboard, or mouse for the Pi — this guide sets
 it up "headless" (over the network) from your second computer. That said,
-nothing stops you from occasionally plugging in a monitor/keyboard/mouse (or
-pairing a Bluetooth set) later for a one-off desktop session — a "headless
-server most of the time" and "occasional physical workstation" aren't mutually
-exclusive, and several official Pi OS images ship a lightweight desktop
-environment by default even on a server-focused install.
+nothing stops you from plugging in a monitor and keyboard later for a one-off
+local session; "headless most of the time" and "occasional physical console"
+aren't mutually exclusive, and a physical console is your recovery path if you
+ever lock yourself out over the network.
+
+Be aware of what that gets you, though. The image this guide recommends —
+**Raspberry Pi OS Lite** ([step 3](#3-flash-and-install-the-os)) — is described
+by the Raspberry Pi Imager as having *"no desktop environment"*, so plugging in
+a monitor gives you a text console, not a graphical one. The non-Lite
+"Raspberry Pi OS (64-bit)" and "Full" images do ship the Raspberry Pi Desktop;
+pick one of those at flashing time if you want a GUI available locally, or add
+a remote one later via [VNC](#option-d-remote-desktop-vnc-for-gui-access).
 
 If you've never used SSH (the tool for logging into another machine over the
 network), skim [DigitalOcean's SSH
