@@ -1949,8 +1949,17 @@ for and makes an affected Pi look healthy.
 If the warning prints, or `memory` is absent from the controller list, no
 memory limit you set is being enforced. To enable it, append
 `cgroup_memory=1 cgroup_enable=memory` to the kernel command line in
-`/boot/firmware/cmdline.txt` (`/boot/cmdline.txt` on Debian 11 and older
-images) and reboot.
+`/boot/firmware/cmdline.txt` and reboot.
+
+**Edit the right file — the old path survives as a decoy.** Debian 11 and
+older images kept the kernel command line at `/boot/cmdline.txt`. Current
+images mount the boot partition at `/boot/firmware` instead and leave
+`/boot/cmdline.txt` behind on the root filesystem as a stub whose entire
+contents are a warning that the real file has moved. Follow an older guide
+and you get a successful edit, a clean reboot, and no change at all — the
+bootloader never reads that copy. (Verified on a current Pi 5 image: both
+paths exist, and only the `/boot/firmware` one is on the vfat boot
+partition.) Confirm with `findmnt /boot/firmware` before you edit anything.
 
 > **Treat this as a high-consequence edit.** `cmdline.txt` must remain a
 > **single line** — options are space-separated, and a stray newline can leave
@@ -2090,10 +2099,14 @@ Points that are easy to get wrong:
   whose host path does not exist yet is created by Docker as an **empty
   directory**, not a file — so Caddy starts, finds a directory where its config
   should be, and serves nothing. If you see that, `docker compose down`, remove
-  the stray directory, write the real file, and start again — and note that
-  Docker creates that directory owned by **root**, so clearing it out of your
-  own home directory still needs `sudo rmdir ./Caddyfile`. This applies to
-  every single-file bind mount, not just Caddy's.
+  the stray directory, write the real file, and start again. Docker creates
+  that directory owned by **root**, which makes `sudo` look necessary — it is
+  not. Permission to remove a directory comes from write access to its
+  *parent*, which you own, not from owning the directory, so a plain
+  `rmdir ./Caddyfile` works (verified: exit 0 on a root-owned empty directory
+  inside a user-owned folder). You need `sudo` only if a container has written
+  root-owned files *inside* it, which makes the job `rm -rf` rather than
+  `rmdir`. This applies to every single-file bind mount, not just Caddy's.
 - **The proxy only helps if the apps stop publishing their own ports.** Once
   Caddy can reach a container over the shared network, remove that container's
   `ports:` mapping — otherwise the app is still directly reachable on its old
