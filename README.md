@@ -815,8 +815,10 @@ already-patched machine — the normal state if this is working — that line is
 absent entirely, and you get the `No packages found...` line instead. Treating
 its absence as "the dry run found nothing, so the updater must be broken" is the
 wrong conclusion; `Allowed origins are:` with a sane origin list is the pass
-condition. (Verified on Debian 12: a fully-patched Pi prints exactly the two
-lines above and nothing about packages to upgrade.) You may also see a
+condition. (Verified on Debian 12: on a fully-patched Pi the rest of the output
+is just an empty `Initial blacklist:` / `Initial whitelist (not strict):` pair
+and a closing `The list of kept packages can't be calculated in dry-run mode.`
+— all normal, and none of it names a package.) You may also see a
 `powermgmt-base` notice about battery checks — harmless on a mains-powered Pi.
 
 (Many examples use `--debug` instead. That works, but it buries the same answer
@@ -1125,7 +1127,7 @@ nano docker-compose.yml
 ```yaml
 services:
   db:
-    image: mariadb:10.11
+    image: mariadb:12.3          # pin a supported MAJOR.MINOR - see the note below
     container_name: nextcloud-db
     restart: unless-stopped
     environment:
@@ -1168,6 +1170,20 @@ services:
   the number by exactly one when you choose to upgrade. Reference: [Nextcloud
   Docker — update to a newer
   version](https://github.com/nextcloud/docker#update-to-a-newer-version).
+- **Pin the database version too — and let the app choose it.** The database
+  is not a free choice: Nextcloud supports a specific list of MariaDB releases,
+  and at the time of writing its [system
+  requirements](https://docs.nextcloud.com/server/latest/admin_manual/installation/system_requirements.html)
+  name MariaDB 10.11 / 11.4 / 11.8 / 12.3, with 12.3 marked recommended. Read
+  that page for the Nextcloud version you are installing rather than trusting
+  the number above. Do **not** reach for `mariadb:lts` as the "conservative"
+  pin — that tag follows whichever release MariaDB currently designates LTS
+  (checked against Docker Hub: `mariadb:lts` and `mariadb:12.3` return the same
+  digest), so it can hand you a new major on an ordinary `docker compose pull`.
+  On a database that is not a tag change you can undo — the server upgrades its
+  data directory in place on first start, and the older binary then refuses to
+  open it. Pin `MAJOR.MINOR`, step it deliberately, and take a dump first
+  ([step 20](#20-backups-and-maintenance)).
 - The `ports:` line binds to the Pi's LAN address for the same reason as the
   Uptime Kuma example above — a bare `"8080:80"` would bypass ufw. If you later
   put Nextcloud behind a [tunnel](#11-reaching-your-pi-from-outside-home), the
