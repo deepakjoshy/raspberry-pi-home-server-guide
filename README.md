@@ -176,14 +176,33 @@ treat it as a deliberate, monitored choice, not a default:
   the firmware what it is running rather than trusting the file — a value can
   also arrive from `raspi-config` or a vendor image:
   ```bash
-  vcgencmd get_config arm_freq          # compare against your model's stock figure
-  vcgencmd get_config over_voltage
-  vcgencmd get_config over_voltage_delta
+  vcgencmd get_config int               # every integer setting the firmware accepted
   ```
+  Prefer that dump over asking for one name at a time. `get_config int` lists
+  only the keys that actually carry a value, so an overclock stands out —
+  `arm_freq=2600` next to `arm_freq_min=1500` and `over_voltage=2` — and
+  anything absent from the dump was never set.
+
+  The per-name form (`vcgencmd get_config arm_freq`) is fine for a single
+  lookup, but it is a poor way to *prove* something is unset, for two reasons
+  worth knowing before you trust its answer:
+
+  - **An unset key reports `0`, not its default.** `vcgencmd get_config
+    temp_limit` prints `temp_limit=0`, even though the real default is the 85°C
+    mentioned above — so you cannot tell "nobody set this" from "somebody set
+    it to zero".
+  - **A misspelled key still exits `0`.** It prints `<name> is unknown` and
+    returns success, so a script that checks only the exit status reads a typo
+    as a clean result.
+
   Stock `arm_freq` is 2400 MHz on a Pi 5, 1800 on a Pi 4B R1.4 with
   `arm_boost=1`, 1500 otherwise. A higher number here, on a Pi you don't
   remember tuning, is worth knowing before you debug odd instability as a
-  software problem. Reference:
+  software problem. Note that `arm_freq` is a **ceiling**, not the current
+  clock — the CPU scales between `arm_freq_min` and `arm_freq` on demand, so
+  `vcgencmd measure_clock arm` on an idle Pi reads well below it (measured on a
+  Pi 5 configured at 2600 MHz: 2.0 GHz at idle). Don't read that gap as the
+  overclock having failed to apply. Reference:
   [`config.txt` overclocking options](https://www.raspberrypi.com/documentation/computers/config_txt.html#overclocking-options).
 
 ## 3. Flash and install the OS
