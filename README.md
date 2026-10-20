@@ -882,13 +882,37 @@ sudo tailscale up --ssh
 Adding `--ssh` also gives you SSH over the tailnet as a **backup access path**,
 independent of your normal SSH — invaluable if you ever misconfigure regular SSH.
 
+**It is only a backup path if the tailnet policy says so.** `--ssh` does not
+reuse your `sshd` — it runs Tailscale's own SSH server, and whether a connection
+is permitted is decided by your **tailnet access-control policy**, not by
+anything on the Pi. Three things follow from that:
+
+- **A new tailnet's default policy already allows it, with one restriction.**
+  The default `ssh` rule targets your own devices (`autogroup:self`) and permits
+  non-root users only (`autogroup:nonroot`), so `ssh root@<pi>` over the tailnet
+  is refused out of the box. Log in as your normal user and `sudo` as usual.
+- **Tightening that policy later can break this path without you touching the
+  Pi.** A rule must grant your user access to the device on port 22, and policy
+  edits take effect within seconds — they will even end SSH sessions already
+  open.
+- **"Check mode" is a poor fit for an emergency path.** A policy can require the
+  user to re-authenticate with your identity provider before connecting (valid
+  ~12 hours afterwards). That needs a working browser and a reachable login
+  page — exactly what you may not have at 1am with a broken `sshd`.
+
+Treat it like any other fallback: **use it once, deliberately, before you need
+it**, rather than discovering its preconditions during the outage it exists for
+— the same reasoning as [a check that cannot
+fail](#a-check-that-cannot-fail-is-not-a-check). Reference: [Tailscale
+SSH](https://tailscale.com/kb/1193/tailscale-ssh).
+
 ### Option C: Reverse tunnel (e.g. Cloudflare Tunnel) — for genuinely public services
 
 A tunnel is for services that people *outside your household* must reach (a
 public file-share link, say). A small client on the Pi makes an **outbound**
 connection to the provider, which proxies public traffic in — so **no router
 ports are opened**. [Cloudflare
-Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
+Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/)
 (free tier; needs a domain on Cloudflare) is common. After installing
 `cloudflared` (see their docs for the current package for 64-bit ARM):
 
@@ -3702,13 +3726,13 @@ nmcli -t -f DEVICE,STATE device     # is your real interface "connected"?
 
 - [Raspberry Pi official documentation](https://www.raspberrypi.com/documentation/)
 - [Tailscale docs](https://tailscale.com/kb/)
-- [Cloudflare Tunnel docs](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
+- [Cloudflare Tunnel docs](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/)
 - [Docker Engine install (Linux)](https://docs.docker.com/engine/install/)
 - [Docker Compose docs](https://docs.docker.com/compose/)
 - [DigitalOcean: SSH key-based authentication](https://www.digitalocean.com/community/tutorials/how-to-configure-ssh-key-based-authentication-on-a-linux-server)
 - [fail2ban](https://github.com/fail2ban/fail2ban)
 - [ufw(8) manual (Debian 12)](https://manpages.debian.org/bookworm/ufw/ufw.8.en.html)
-  and [Ubuntu Server docs — firewalls](https://documentation.ubuntu.com/server/how-to/security/firewalls/)
+  and [Ubuntu Server docs — firewalls](https://ubuntu.com/server/docs/how-to/security/firewalls/)
   — the long-standing `help.ubuntu.com/community/UFW` link these replace still
   works: it 301-redirects to [wiki.ubuntu.com/UFW](https://wiki.ubuntu.com/UFW).
   That page is community-maintained and older than the two above, so prefer
