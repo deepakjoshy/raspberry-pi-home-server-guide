@@ -862,7 +862,7 @@ don't.
 
 ### Option B: Private mesh VPN (e.g. Tailscale) — safest default
 
-[Tailscale](https://tailscale.com/kb/1017/install/) builds an encrypted private
+[Tailscale](https://tailscale.com/docs/how-to/quickstart) builds an encrypted private
 network between your devices. Nothing is exposed to the public internet — only
 your own logged-in devices can reach the Pi. This is the right choice for
 anything you never want public: dashboards, admin panels, download clients.
@@ -904,7 +904,7 @@ Treat it like any other fallback: **use it once, deliberately, before you need
 it**, rather than discovering its preconditions during the outage it exists for
 — the same reasoning as [a check that cannot
 fail](#a-check-that-cannot-fail-is-not-a-check). Reference: [Tailscale
-SSH](https://tailscale.com/kb/1193/tailscale-ssh).
+SSH](https://tailscale.com/docs/features/tailscale-ssh).
 
 ### Option C: Reverse tunnel (e.g. Cloudflare Tunnel) — for genuinely public services
 
@@ -1781,10 +1781,12 @@ services:
 
 - **Pin the version instead of `:latest`,** for the reasons given in
   [step 12](#12-running-services-with-docker). LinuxServer.io tags each build
-  with its upstream version, so there is a real tag to pin to — at the time of
-  writing `1.43.4`, `version-1.43.4.10903-e5521bd8c` and `latest` all name the
-  same image. There is no major-only tag (`:1`) to hide behind here, so check
-  the registry for the current version and bump it deliberately.
+  with its upstream version, so there is a real tag to pin to — both a short
+  `1.43.4` form and a long `version-1.43.4.10903-e5521bd8c` one naming the same
+  build. Treat the number shown above as an example rather than a current
+  recommendation: upstream moves on, and `1.43.4` and `latest` already resolve
+  to different digests. There is no major-only tag (`:1`) to hide behind here,
+  so look up the current version in the registry and bump it deliberately.
 - `network_mode: host` shares the Pi's own network stack directly with the
   container — no `ports:` mapping needed, but it also means the container isn't
   isolated from your LAN the way a normally-networked container is. Keep this
@@ -3725,7 +3727,7 @@ nmcli -t -f DEVICE,STATE device     # is your real interface "connected"?
 ## 30. Further reading
 
 - [Raspberry Pi official documentation](https://www.raspberrypi.com/documentation/)
-- [Tailscale docs](https://tailscale.com/kb/)
+- [Tailscale docs](https://tailscale.com/docs)
 - [Cloudflare Tunnel docs](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/)
 - [Docker Engine install (Linux)](https://docs.docker.com/engine/install/)
 - [Docker Compose docs](https://docs.docker.com/compose/)
