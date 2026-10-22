@@ -955,11 +955,21 @@ service installed below runs as root.
 Validate, test in the foreground, then install it as a boot service:
 
 ```bash
-cloudflared tunnel ingress validate      # checks the rules parse and the catch-all exists
+cloudflared tunnel ingress validate      # rules parse, and no rule shadows the ones below it
 cloudflared tunnel run home              # foreground; Ctrl+C once you have confirmed it works
 sudo cloudflared service install         # reads the config above; starts on boot
 sudo systemctl status cloudflared
 ```
+
+`ingress validate` is worth re-running every time you touch the file, and it
+is honest about failure: it exits **non-zero** and names the problem — `The
+last ingress rule must match all URLs` for a missing catch-all, or `Rule #1 is
+matching the hostname '', but this will match every hostname` when a
+match-everything rule has drifted above the specific ones. One catch if you
+wrap it in a script: that verdict goes to **stderr**, while stdout carries only
+the `Validating rules from ...` banner — so a `2>/dev/null` wrapper prints a
+clean-looking line for a config that just failed. (Verified with cloudflared
+2026.9.1.)
 
 `service install` picks up the credentials from the config file you just wrote,
 so write the config *before* running it. Adding a hostname later means editing
@@ -1022,6 +1032,10 @@ cloudflared tunnel ingress validate
 cloudflared tunnel ingress rule https://status.example.com/status/mypage   # should hit the app
 cloudflared tunnel ingress rule https://status.example.com/dashboard       # should hit the 404
 ```
+
+Read the `Matched rule #N` line it prints rather than the exit status:
+`ingress rule` exits `0` whichever rule matched — including the 404 — so it
+only answers the question if you read the output.
 
 Confirm from a machine *off your network* (or with `curl -I`) that the private
 paths really return 404 before you consider it done.
