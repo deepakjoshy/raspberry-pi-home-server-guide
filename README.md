@@ -746,21 +746,28 @@ sudo apt install arp-scan -y
 sudo arp-scan --interface=eth0 --localnet    # name your LAN interface explicitly
 ```
 
-**Name the interface.** `--localnet` derives the range to scan from an
-interface's own address and netmask, and if you don't say which one,
-`arp-scan` chooses for you — the lowest-numbered configured, up, non-loopback
-interface. That is usually the right answer on a Pi, because `eth0` and
-`wlan0` exist from boot and get lower interface indexes than anything Docker
-or a VPN creates later. (`ip -o link` prints every interface with its index: on
-a Pi running Docker, Tailscale and several container bridges, `eth0` is index 2
-and every Docker or VPN interface sits above it, so `eth0` wins. The exact
-numbers move as containers come and go; the ordering does not.) It stops
-being the right answer the moment your LAN interface is **down** — a Wi-Fi Pi
-with an unused `eth0`, or a cable unplugged — because then the first *up*
-interface really is `docker0` (`172.17.0.0/16`) or a tunnel, and the scan
-succeeds, reports a handful of containers, and never looks at your network at
-all. Don't leave it to the ordering: check with `ip -brief addr` and pass the
-name explicitly (`eth0` wired, `wlan0` Wi-Fi).
+**Name the interface.** `--localnet` derives the range to scan from the address
+and netmask of an interface, and if you do not say which one, `arp-scan` picks
+what the man page calls "the lowest numbered, configured up interface
+(excluding loopback)". Do not read that as "lowest interface index": the binary
+resolves it through libpcap `pcap_findalldevs()` and takes the first suitable
+device returned, and that ordering is a libpcap implementation detail rather
+than a documented contract you can plan around.
+
+On a Pi it usually lands on `eth0` or `wlan0` anyway. It stops being the right
+answer the moment your LAN interface is **down** — a Wi-Fi Pi with an unused
+`eth0`, or a cable unplugged — because then the first *up* candidate really is
+`docker0` (`172.17.0.0/16`) or a tunnel, and the scan succeeds, reports a
+handful of containers, and never looks at your network at all. So do not leave
+it to the ordering: check with `ip -brief addr` and pass the name explicitly
+(`eth0` wired, `wlan0` Wi-Fi).
+
+One smaller detail, worth knowing before you compare host counts between runs:
+`--localnet` includes the **network and broadcast addresses** of the range it
+derives, so a `/24` scans 256 addresses rather than the 254 usable ones.
+Nothing replies for those two, so it moves the "hosts scanned" figure in the
+summary line, not the results. Reference:
+[arp-scan(1)](https://manpages.debian.org/bookworm/arp-scan/arp-scan.1.en.html).
 
 Run this on a schedule (see [Task automation](#24-task-automation-and-scheduled-jobs))
 and keep a simple text or JSON file of MAC addresses you've already seen — a
