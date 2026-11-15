@@ -1516,6 +1516,7 @@ consequences:
   ```
 
 (Verified on Debian 12 with Samba 4.17.)
+
 Then set a Samba password for your user — separate from their Linux login
 password — and have `smbd` pick up the new share:
 
@@ -1524,10 +1525,30 @@ sudo smbpasswd -a <username>
 sudo systemctl reload smbd
 ```
 
-Prefer `reload` over `restart` here: it signals `smbd` to re-read `smb.conf`
-without tearing down existing connections, so nobody's in-progress file copy
-dies because you added a share. (`smbpasswd` needs no restart at all — the
-password database is read live.)
+Prefer `reload` over `restart` here: Debian's unit implements it as a `SIGHUP`
+to `smbd`, which re-reads `smb.conf` without tearing down existing connections,
+so nobody's in-progress file copy dies because you added a share. (`smbpasswd`
+needs no restart at all — the password database is read live.) The reload is
+really only about speed: `smbd` re-reads `smb.conf` and its includes
+**automatically every three minutes** if they changed, so a new share would
+appear on its own eventually.
+
+**But no reload reconfigures a client that is already connected** — and that
+asymmetry bites in the dangerous direction. `man 8 smbd` is explicit that
+reloading *"will not affect connections to any service that is already
+established. Either the user will have to disconnect from the service, or smbd
+killed and restarted."* Adding a share is therefore fine to apply with
+`reload`. *Tightening* one — flipping `read only = yes`, dropping a name from
+`valid users`, removing the share outright — does **not** take effect for a
+session that is open right now. Treat a revocation as still live until you have
+checked that the session is gone, and restart `smbd` (losing in-flight
+transfers) if it has to apply immediately:
+
+```bash
+sudo smbstatus --shares      # which users are connected to which share, now
+```
+
+(Verified against `man 8 smbd`, Samba 4.17 on Debian 12.)
 
 A note on ownership: Samba enforces the *Linux* filesystem permissions on
 `path` as well as its own `valid users` list, so if writes fail despite a
