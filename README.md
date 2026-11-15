@@ -1959,12 +1959,18 @@ The exFAT and NTFS tradeoffs are easy to miss until a backup script fails
 part-way through:
 
 - **exFAT cannot store Unix ownership, permission bits, symlinks, or
-  hardlinks at all.** A backup tool like `rsync` that tries to preserve any of
-  these (`-a`/`-p`/`-H`) will error out mid-run. If you need exFAT for
-  cross-platform reasons, drop those flags (`--no-owner --no-group`, no `-H`)
-  and accept that incremental "hardlink to the previous backup" tricks
-  (`--link-dest`) silently fall back to full copies — plan disk space
-  accordingly.
+  hardlinks at all.** Note *how* `rsync` fails when it hits that wall, because
+  it is not the obvious way: it does **not** abort. It reports each refused
+  operation as a per-file error, copies the file contents anyway, runs to the
+  end, and exits **23** — `man rsync` calls that "partial transfer due to
+  error". So a scheduled job that only checks "did it run" sees a backup that
+  looks complete, while the errors scroll past in a log nobody reads. Check the
+  exit code ([step 20](#20-backups-and-maintenance)). If you need exFAT for
+  cross-platform reasons, drop the flags it cannot honour
+  (`--no-owner --no-group`, no `-H`) so that a clean run means something, and
+  accept that incremental "hardlink to the previous backup" tricks
+  (`--link-dest`) fall back to full copies — that one is genuinely silent, with
+  no error at all — so plan disk space accordingly.
 - **NTFS on Linux can get stuck with a "dirty bit"** if it wasn't unmounted
   cleanly (e.g. unplugged from Windows without ejecting first), and some
   drivers refuse to mount it read-write until that's cleared — a recurring
@@ -3672,7 +3678,9 @@ nmcli -t -f DEVICE,STATE device     # is your real interface "connected"?
   write-heavy 24/7.
 - **exFAT and NTFS aren't Linux-native filesystems** — know what they can't
   store (ownership, permissions, symlinks, hardlinks) *before* you point a
-  backup tool at one, not after a run fails partway through.
+  backup tool at one. The failure is quieter than you'd expect: rsync logs the
+  refusals and finishes anyway, so you only learn about it if something checks
+  the exit code.
 - **Stage risky changes with a rollback path**, especially anything touching SSH
   or the firewall — that's the class of mistake that turns a five-minute fix
   into re-flashing a card.
@@ -3755,11 +3763,13 @@ nmcli -t -f DEVICE,STATE device     # is your real interface "connected"?
   you read it. Under-voltage bits point at the power supply or cable; the
   temperature bits point at cooling. Reference:
   [`vcgencmd` documentation](https://www.raspberrypi.com/documentation/computers/os.html#get_throttled).
-- **A backup/rsync job errors out partway through on an external drive** —
-  suspect the filesystem before the script. See [Choosing a filesystem for
-  attached storage](#17-choosing-a-filesystem-for-attached-storage): exFAT in
-  particular rejects ownership, permission, and symlink/hardlink operations
-  outright.
+- **A backup/rsync job logs per-file errors on an external drive, or exits 23
+  while looking like it copied everything** — suspect the filesystem before the
+  script. See [Choosing a filesystem for attached
+  storage](#17-choosing-a-filesystem-for-attached-storage): exFAT rejects
+  ownership, permission, and symlink/hardlink operations outright, and `rsync`
+  responds by logging each one and carrying on to a non-zero exit rather than
+  stopping.
 - **fail2ban is running but never bans anyone** — first rule out the boring
   explanation: if SSH is only reachable from your LAN or a VPN, there is
   nothing to ban. If the port really is public, confirm the jail is reading a
