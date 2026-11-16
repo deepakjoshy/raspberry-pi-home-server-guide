@@ -1159,6 +1159,7 @@ Common starting points, by need:
 | Reverse proxy | Caddy, Nginx Proxy Manager, Traefik (see [step 19](#19-putting-several-services-behind-one-reverse-proxy)) |
 | Container management UI | Portainer |
 | Workflow automation | n8n (see worked example below) |
+| Network-wide ad/tracker filtering | Pi-hole, AdGuard Home (see worked example below) |
 
 [Portainer](https://docs.portainer.io/) gives you a web UI over Docker if you'd
 rather not manage containers from the command line. For each new service,
@@ -1452,6 +1453,104 @@ put it behind a [tunnel](#11-reaching-your-pi-from-outside-home), strongly
 consider an additional gate in front of it (e.g. Cloudflare Access) rather
 than relying on the app password alone — and if you decide against that
 extra gate, that's a real risk being accepted, not a formality to skip past.
+
+### A worked example — network-wide DNS filtering (ad and tracker blocking)
+
+A filtering resolver answers DNS for your whole network and refuses to resolve
+known ad, tracker, and telemetry domains. Its advantage over a browser
+extension is coverage: it also protects the devices you cannot install
+anything on — smart TVs, consoles, appliances, a guest phone. The two common
+choices are [Pi-hole](https://docs.pi-hole.net/) and [AdGuard
+Home](https://github.com/AdguardTeam/AdGuardHome), both of which run fine in a
+container on a Pi ([official Pi-hole
+image](https://github.com/pi-hole/docker-pi-hole)). If you do not want another
+service to maintain, pointing a single device at a public filtering resolver is
+the zero-effort alternative.
+
+**1. Publish DNS on the LAN address, not everywhere.** DNS needs UDP *and* TCP
+on port 53, and the same reasoning as Uptime Kuma above applies — bind the
+published ports to the LAN address of the Pi so the resolver is never offered
+on an interface you did not intend:
+
+```yaml
+    ports:
+      - "192.168.x.y:53:53/udp"
+      - "192.168.x.y:53:53/tcp"
+      - "192.168.x.y:8080:80"      # admin UI
+```
+
+**2. Check whether port 53 is already taken — the answer differs by OS.** Most
+guides tell you to disable the `systemd-resolved` stub listener before
+starting. Verify instead of assuming:
+
+```bash
+ss -tulpn | grep -E ":53\b"
+systemctl is-active systemd-resolved
+```
+
+On a stock Raspberry Pi OS (Bookworm) image this prints nothing and
+`inactive` — `systemd-resolved` is not installed at all, so there is no stub
+listener to disable and no `DNSStubListener` line to edit. On Ubuntu Server and
+several desktop distros it *is* bound to `127.0.0.53:53` and you do have to
+free it first. Following the fix blind on the wrong OS edits a file that does
+not apply to you.
+
+**3. Point your devices at it — and watch for the IPv6 leak.** Three shapes, in
+rough order of blast radius:
+
+| Where you set it | Covers | Main catch |
+|---|---|---|
+| One device, by hand | That device only | Easy to test, easy to forget |
+| Router DHCP, network-wide | Everything that takes a DHCP lease | Needs the IPv6 half too (below) |
+| Encrypted DNS on the client (DoT/DoH by hostname) | That device, both IP families | No Pi involved; the blocklist is the one the provider maintains, not yours |
+
+The failure nearly everyone hits is the second row done halfway: you set the
+filtering resolver as a static **IPv4** DNS entry, test it, and it works —
+while the router carries on advertising **itself** as an IPv6 resolver through
+router advertisements. A dual-stack client keeps using that IPv6 resolver for a
+share of its queries, so filtering is silently partial. Nothing looks wrong:
+the setting is applied and an IPv4 test passes.
+
+Spot it on any Linux client with:
+
+```bash
+ip -6 route show default                     # "proto ra" = the router is advertising
+nmcli dev show eth0 | grep -E "IP[46]\.DNS"
+```
+
+If `IP6.DNS` lists an address you never configured, that is the router handing
+out its own resolver. On the Pi this guide was written against, the IPv4
+entries had been set by hand while `IP6.DNS[1]` was still the router — and
+querying that address for a known ad domain returned the real IP, while the
+filtering resolver returned `0.0.0.0` for the same name. Three ways out:
+advertise the Pi as the IPv6 resolver as well (or turn off IPv6 DNS
+advertisement on the router), disable IPv6 on the LAN (the blunt instrument),
+or skip per-interface DNS entirely and use hostname-based **DNS-over-TLS** on
+the client — [Private DNS on
+Android](https://adguard-dns.io/kb/private-dns/overview/), for example — which
+covers both address families at once.
+
+**4. Verify by comparison, not by vibes.** Ask your resolver and a known
+unfiltered resolver the same question:
+
+```bash
+dig +short @<pi-ip> doubleclick.net A      # expect 0.0.0.0, :: or NXDOMAIN
+dig +short @1.1.1.1 doubleclick.net A      # expect a real address
+```
+
+Two different answers mean filtering is live. Then run the first command again
+against whatever resolver the *client* actually uses, IPv6 one included —
+that is the query path that matters, not the one the Pi uses for itself.
+
+**5. Understand what you just made load-bearing.** Once the router hands out
+the Pi as the network resolver, a stopped container or a wedged SD card does
+not look like a DNS outage to anyone else in the house; it looks like the
+internet is broken. Two consequences worth accepting deliberately: monitor it
+like a critical service (see [step 14](#14-uptime-monitoring-and-alerts)), and
+write down how to revert the router setting somewhere that does not need DNS to
+read. Adding a second, unfiltered resolver in DHCP as a backup is not the
+safety net it looks like — clients are free to use either one, so the result is
+intermittent filtering rather than redundancy.
 
 ## 13. File sharing on your LAN with Samba
 
@@ -2225,8 +2324,10 @@ Points that are easy to get wrong:
   `jellyfin.home.example.com` means nothing until something answers for it —
   either a wildcard/`A` record in a domain you control pointing at the Pi's LAN
   IP, or a local DNS server (a Pi-hole or your router, if it supports custom
-  entries) mapping the names internally. Editing each client's `hosts` file
-  works but doesn't scale past a couple of devices.
+  entries) mapping the names internally — the [DNS filtering worked
+  example](#a-worked-example--network-wide-dns-filtering-ad-and-tracker-blocking)
+  gives you one. Editing each client's `hosts` file works but does not scale
+  past a couple of devices.
 - **Automatic HTTPS needs a public challenge or a DNS challenge.** Caddy gets
   free certificates automatically, but the default HTTP challenge requires the
   hostname to be publicly reachable on port 80 — which a LAN-only service is
