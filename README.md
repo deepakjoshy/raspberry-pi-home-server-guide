@@ -421,9 +421,42 @@ service path described above. If it prints `enabled`, apply the same action to
 [Ubuntu — sshd socket-based
 activation](https://discourse.ubuntu.com/t/sshd-now-uses-socket-based-activation-ubuntu-22-10-and-later/30189).
 
-**Step 5 — Verify.** With your original session still open, start yet another
-new SSH connection. It should log in via your key and **refuse** any password
-fallback. If something's wrong, you still have the working session to fix it.
+**Step 5 — Verify by trying to fail.** With your original session still open,
+start yet another new SSH connection. It logs you in via your key — but that
+only proves keys work. It says nothing about whether passwords still work, so
+on its own it is [a check that cannot
+fail](#a-check-that-cannot-fail-is-not-a-check). Ask for the password path
+explicitly and confirm the server refuses it:
+
+```bash
+ssh -o PubkeyAuthentication=no -o PreferredAuthentications=password,keyboard-interactive -o NumberOfPasswordPrompts=1 <username>@homeserver.local
+```
+
+Those `-o` flags only change your **client** behaviour for this one
+connection, so the test itself cannot lock anything out. Read the denial line
+rather than just noting that it failed:
+
+```text
+<username>@homeserver.local: Permission denied (publickey).
+```
+
+`(publickey)` on its own is the pass — that list is the set of methods the
+server was still willing to offer. Two failure signals to watch for:
+
+- **You get a password prompt at all.** The prompt *is* the failure; press
+  Ctrl+C. Password login is still on — usually because `sshd` was not
+  restarted, or a drop-in in `/etc/ssh/sshd_config.d/` is overriding the main
+  file (see the `sshd -T` check above).
+- **The denial reads `Permission denied (publickey,password).`** Same
+  conclusion. (Verified on a Pi running Debian 12 whose `sshd -T` reports
+  `passwordauthentication yes`: that host prints exactly the two-method form,
+  naming both methods it would still accept.)
+
+`keyboard-interactive` is in the list on purpose. With PAM in play a server
+can still accept a typed password through that method even when
+`PasswordAuthentication` is `no`, so a test that asks only for `password`
+would miss it. If something is wrong, you still have the working session to
+fix it.
 
 Reference: [DigitalOcean's SSH key-auth
 guide](https://www.digitalocean.com/community/tutorials/how-to-configure-ssh-key-based-authentication-on-a-linux-server).
@@ -3678,6 +3711,10 @@ Two ways this particular check can reassure you wrongly:
   still log in *with a key*, just not a password. It is a reasonable setting,
   but if you intended to bar root entirely, this output is not the confirmation
   it looks like; set `PermitRootLogin no` and re-check.
+
+Both of those are the server reporting on itself. For an end-to-end answer,
+run the client-side negative test in [step 6](#6-secure-your-ssh-access) —
+it asks for the password path and shows you what sshd actually refuses.
 
 Resist reading the *counters* as a health check. A `Total failed: 0` is often
 taken as proof that fail2ban is watching the wrong log, but on a Pi that is
