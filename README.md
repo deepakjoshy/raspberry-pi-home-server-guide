@@ -860,9 +860,10 @@ patched. Do a dry run:
 sudo unattended-upgrade --dry-run -v
 ```
 
-It prints what *would* be upgraded, without changing anything. Read the
-`Allowed origins are:` line — that is the one that proves your config is being
-read at all, and it tells you which repositories it is willing to touch:
+It prints what *would* be upgraded, without installing anything (it does still
+append to the dpkg log). Read the `Allowed origins are:` line — that is the one
+that proves your config is being read at all, and it tells you which
+repositories it is willing to touch:
 
 ```text
 Allowed origins are: origin=Debian,codename=bookworm,label=Debian-Security, ...
@@ -874,11 +875,27 @@ already-patched machine — the normal state if this is working — that line is
 absent entirely, and you get the `No packages found...` line instead. Treating
 its absence as "the dry run found nothing, so the updater must be broken" is the
 wrong conclusion; `Allowed origins are:` with a sane origin list is the pass
-condition. (Verified on Debian 12: on a fully-patched Pi the rest of the output
-is just an empty `Initial blacklist:` / `Initial whitelist (not strict):` pair
-and a closing `The list of kept packages can't be calculated in dry-run mode.`
-— all normal, and none of it names a package.) You may also see a
-`powermgmt-base` notice about battery checks — harmless on a mains-powered Pi.
+condition. (Verified on Debian 12: the rest of a fully-patched run is just an
+empty `Initial blacklist:` / `Initial whitelist (not strict):` pair and a
+closing `The list of kept packages can't be calculated in dry-run mode.`)
+
+**If there *are* pending updates, read the ending carefully.** With something
+queued, the same dry run names the packages, prints the `dpkg` command lines it
+*would* have used, and finishes with `All upgrades installed` — which reads
+exactly as though it just patched the machine. It did not. The governing line is
+`Option --dry-run given, *not* performing real actions` further up; those
+packages are still pending until the timer fires or you run
+`sudo unattended-upgrade` without `--dry-run`. Verified on Debian 12:
+
+```text
+Option --dry-run given, *not* performing real actions
+Packages that will be upgraded: ghostscript libgs-common libgs10 libgs10-common
+/usr/bin/dpkg --status-fd 10 --no-triggers --unpack --auto-deconfigure ...
+All upgrades installed
+```
+
+You may also see a `powermgmt-base` notice about battery checks — harmless on a
+mains-powered Pi.
 
 (Many examples use `--debug` instead. That works, but it buries the same answer
 under ~170 lines of apt pinning detail; `-v` is the readable form, and `--debug`
