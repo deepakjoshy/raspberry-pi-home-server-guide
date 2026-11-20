@@ -3092,6 +3092,103 @@ While you are there, check the other half of the same problem: not what you
 scheduled and forgot, but what you *opened* and forgot — see
 [Every temporary opening needs a scheduled close](#every-temporary-opening-needs-a-scheduled-close).
 
+### A reboot invalidates runtime state, and early-boot timestamps
+
+A service that is meant to be the only copy of itself — a chat gateway, a
+download client, a poller you wrote — usually guards against a second instance
+with a **lock file** holding the running process's PID. After a reboot that
+guard can turn on its owner: the lock file from *before* the reboot survives,
+the service reads it, decides "already running", and exits. systemd restarts
+it, it exits again, and the loop can continue for hours or days. There is no
+crash and no obvious error — and if the dead service is the one that sends your
+alerts, nothing tells you.
+
+The reason "is that PID still alive?" isn't enough is **PID reuse**. Boot order
+on a given machine is close to deterministic, so the number recorded before the
+reboot is often handed to some unrelated process on the next boot. The staleness
+check then finds a live process at that PID and believes the lock. Three habits
+fix this properly:
+
+- **Keep lock and PID state on tmpfs, not in `$HOME`.** `/run` (and `/run/user/<uid>`
+  for a `--user` service) is a RAM filesystem that is empty after every boot, so
+  the problem cannot arise. The cleanest form is to let systemd own the
+  directory:
+
+  ```ini
+  [Service]
+  RuntimeDirectory=myservice      # /run/myservice, or $XDG_RUNTIME_DIR/myservice for --user
+  ```
+
+  systemd creates it when the unit starts and, per `man systemd.exec`, removes
+  the innermost directory again when the unit stops — unless you set
+  `RuntimeDirectoryPreserve=`. Nothing to clean up by hand.
+- **Record the boot, not just the PID.** If the state genuinely has to live on
+  disk, write the current boot's unique ID alongside the PID and treat a
+  mismatch as unconditionally stale:
+
+  ```bash
+  cat /proc/sys/kernel/random/boot_id    # changes on every boot
+  tr -d '\0' < /proc/<pid>/cmdline       # confirm the PID is still *your* process
+  ```
+- **Never aim a "force takeover" at a PID you haven't re-verified.** Commands
+  spelled `--replace`, `--force` or `kill $(cat pidfile)` will happily signal
+  whatever now owns that number, which after a reboot may be a desktop session
+  or another service.
+
+If you can't change the service itself, clear its leftovers once per boot before
+it starts — gated on a marker in a tmpfs path, which is self-resetting:
+
+```bash
+#!/bin/bash
+# clear-stale-locks.sh — retire pre-reboot lock state on the first start per boot
+MARKER="${XDG_RUNTIME_DIR:-/run}/myservice-locks-cleared"   # on tmpfs: gone after a reboot
+[ -e "$MARKER" ] && exit 0
+mkdir -p ~/.myservice/state-preboot
+mv -f ~/.myservice/*.lock ~/.myservice/instance.json ~/.myservice/state-preboot/ 2>/dev/null
+touch "$MARKER"
+exit 0
+```
+
+```ini
+# ~/.config/systemd/user/myservice.service.d/clear-stale-locks.conf
+[Service]
+ExecStartPre=%h/bin/clear-stale-locks.sh
+```
+
+Then `systemctl --user daemon-reload`. Note it **moves** rather than deletes:
+the leftover state is the only evidence of what went wrong, and you want it
+after the service is healthy again, not instead.
+
+**Do not gate any of that on a file's modification time** — on a Raspberry Pi,
+early-boot timestamps are simply wrong. Pi 4 and earlier have no real-time
+clock at all; the Pi 5 has one, but it only keeps time while powered off if you
+fit the optional coin cell. Without a battery the kernel starts the clock at the
+epoch and the real time arrives later, from the saved timestamp
+(`fake-hwclock`, pre-installed on Raspberry Pi OS) and then from NTP. The jump
+is visible in the journal — this is real output from a running Pi 5 with no
+battery fitted, all from the *same* boot:
+
+```text
+2026-04-28T01:18:55+0530 kernel: rpi-rtc ...: setting system clock to 1970-01-01T00:00:09 UTC (9)
+2026-11-19T12:17:02+0530 systemd-timesyncd[685]: System clock time unset or jumped
+    backwards, restoring from recorded timestamp: Thu 2026-11-19 12:54:17 IST
+2026-11-19T12:54:17+0530 systemd[1]: Started systemd-timesyncd.service
+```
+
+Three consequences worth knowing before they confuse you:
+
+- Anything written in the first seconds of a boot carries a nonsense mtime, so
+  `find -mmin`/`-mtime` and "is this file older than X" logic — including the
+  [staleness assertions](#a-check-that-cannot-fail-is-not-a-check) this guide
+  recommends elsewhere — can give a wrong answer right after a reboot. Prefer a
+  marker that is *absent* after a reboot (tmpfs) over one that is *old*.
+- Journal lines from one boot are not in chronological order. Select by boot
+  (`journalctl -b`, `-b -1`, `journalctl --list-boots`) rather than by a
+  wall-clock window when you are reading an early-boot problem.
+- If you need the clock to be right before the network comes up — certificate
+  validation, scheduled jobs that fire at boot — fit the Pi 5's RTC battery
+  ([official documentation](https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#real-time-clock-rtc)).
+
 ## 25. Running an AI ops agent on the server
 
 Everything so far assumed *you* are the one typing commands. A newer option is
@@ -3957,6 +4054,12 @@ nmcli -t -f DEVICE,STATE device     # is your real interface "connected"?
   A `Restarting` status means it starts and dies repeatedly — check for an OOM
   kill ([step 18](#18-memory-swap-and-container-resource-limits)) or a
   permissions problem on a mounted volume before suspecting the image itself.
+- **A service restart-loops, logging that it is “already running”** — after a
+  reboot, suspect its own leftover lock/PID file rather than the service. The
+  recorded PID can have been recycled by an unrelated process, which makes the
+  staleness check believe the lock. Do not kill that PID; clear the pre-reboot
+  state and keep such files on tmpfs in future — see [A reboot invalidates
+  runtime state](#a-reboot-invalidates-runtime-state-and-early-boot-timestamps).
 - **An external drive intermittently fails to auto-mount after an unclean
   disconnect** — common with NTFS-formatted drives that get unplugged without
   "safely eject" first, leaving a "dirty" filesystem flag Linux won't
