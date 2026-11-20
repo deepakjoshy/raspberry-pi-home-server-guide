@@ -3088,6 +3088,10 @@ current inventory down somewhere (see
 [versioning your configuration](#21-versioning-your-configuration-with-git))
 turns the next review into a diff instead of a rediscovery.
 
+While you are there, check the other half of the same problem: not what you
+scheduled and forgot, but what you *opened* and forgot — see
+[Every temporary opening needs a scheduled close](#every-temporary-opening-needs-a-scheduled-close).
+
 ## 25. Running an AI ops agent on the server
 
 Everything so far assumed *you* are the one typing commands. A newer option is
@@ -3642,6 +3646,87 @@ A few details that matter:
   SSH session, not enough to get distracted.
 - This is a safety net, not a substitute for the older rule in this guide: keep
   your existing session open, and test from a *new* one.
+
+### Every temporary opening needs a scheduled close
+
+Troubleshooting opens holes. A firewall port allowed "just for this one test",
+password authentication switched back on for a single login, a remote-debug
+interface enabled to inspect a device, a container started `--privileged`, a
+remote-desktop session left connected. Each one is opened deliberately and for
+a good reason — and then the task that needed it finishes, and *nothing in the
+system closes the opening*. You do not notice, because the thing that would
+have reminded you is the task you just completed.
+
+This is a different failure from a forgotten scheduled job
+([step 24](#24-task-automation-and-scheduled-jobs)): a stale timer at least
+appears in a timer list. A temporary opening leaves no trace anywhere that it
+was ever meant to be temporary — it looks exactly like a deliberate part of
+your configuration.
+
+Three habits that cost almost nothing:
+
+**1. Schedule the close before you open it.** Same mechanism as the rollback
+timer above; the only difference is that you never cancel this one.
+
+```bash
+# Allow a debug port for two hours — and schedule its removal FIRST.
+sudo systemd-run --on-active=2h --timer-property=AccuracySec=1s \
+  --unit=close-debug-port \
+  /usr/sbin/ufw delete allow from 192.168.1.0/24 to any port 5555 proto tcp
+systemctl list-timers close-debug-port --no-pager   # confirm it is really pending
+```
+
+Two details quietly break that close-out:
+
+- **Delete by rule, not by number.** `ufw delete 4` asks for confirmation on
+  standard input, and a unit running unattended has no standard input: it reads
+  an empty answer, prints `Aborted`, and leaves the rule in place — while
+  looking like it ran. (Confirmed in the ufw 0.36 source: the prompt is skipped
+  only when `--force` is given.) The full rule form above deletes without
+  asking; `ufw --force delete 4` is the other way out.
+- **A transient timer does not survive a reboot — the firewall rule does.** If
+  the Pi restarts inside your two-hour window, the opening outlives the thing
+  that was supposed to close it. For anything longer than one working session,
+  record the close-out somewhere persistent rather than trusting the timer.
+
+**2. Label it with an expiry.** ufw rules take a free-text comment, which is
+the cheapest possible place to record intent:
+
+```bash
+sudo ufw allow from 192.168.1.0/24 to any port 5555 proto tcp \
+  comment "TEMP expires 2026-01-05 - debug port"
+sudo ufw status numbered       # comments are shown here, next to the rule numbers
+```
+
+That turns a leftover you have to remember into one you can grep for.
+
+**3. Sweep for leftovers on a schedule** — the same periodic review where you
+[re-list what is actually scheduled](#periodically-re-list-what-is-actually-scheduled):
+
+```bash
+sudo ufw status numbered                                           # rules, with comments
+sudo sshd -T | grep -iE "passwordauthentication|permitrootlogin"   # effective SSH policy
+ss -tulpn                                                          # anything listening you did not expect
+who; loginctl list-sessions --no-pager                             # sessions still open
+systemctl list-timers --all --no-pager                             # pending close-outs
+```
+
+`sshd -T` is the right question to ask because the config *file* can be
+misleading — see [step 6](#6-secure-your-ssh-access). And if your configuration
+lives in git ([step 21](#21-versioning-your-configuration-with-git)) there is a
+cheaper version of this whole list: a temporary change is an uncommitted diff,
+so one `git status` in the config repo shows everything you changed and never
+meant to keep.
+
+Finally, when something genuinely odd does turn up — unexplained traffic, a
+service restarting, input you did not send — check what you left open, and then
+**identify the real source before concluding you were attacked**. A case behind
+this guide: phantom key presses on a networked media device looked exactly like
+someone driving it through a debug port that had, in fact, been left open for
+three days. Logging which input device actually emitted the events showed they
+all came from the hardware panel buttons: a failing switch, not an intruder.
+Both halves needed fixing, and reconfiguring under the wrong diagnosis would
+have fixed neither.
 
 ## 27. A checklist to verify your setup
 
