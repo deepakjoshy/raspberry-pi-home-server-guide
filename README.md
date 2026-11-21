@@ -1836,6 +1836,10 @@ find /mnt/backup -maxdepth 1 -name 'snapshot-*' -mmin -2160 | grep -q . \
   || echo "WARNING: no backup snapshot in the last 36h"
 ```
 
+That `36` is tied to a nightly schedule, so it stops meaning anything the day
+you change the job's cadence — see [Changing a job's schedule rewrites its
+tuned constants](#changing-a-jobs-schedule-rewrites-its-tuned-constants).
+
 The single habit that catches all of these: **break the thing on purpose and
 confirm the alarm fires.** Stop a monitored container, feed the parser a log line
 you know is an error, rename the backup directory. A check you have never seen
@@ -2551,6 +2555,52 @@ A home server is only as safe as its backups. Build these habits early:
   24/7 writes — this is why an SSD is worth it for busy setups.
 - **Keep a running TODO list** of unfinished items. A home server is rarely
   "done" in one sitting.
+
+### Changing a job's schedule rewrites its tuned constants
+
+Moving a job from daily to weekly (or hourly to daily) is a one-line edit in
+one file. Every number that was tuned to the *old* interval lives in a
+different file — the script, a sibling job, a monitoring check — and nothing
+warns you that they no longer agree. The job keeps succeeding; what it
+guarantees quietly changes. Three things to re-read before you change a
+schedule:
+
+- **Retention.** A rotating backup prunes in one of two shapes, and they break
+  in opposite directions. *Age-based* pruning (`-mtime +3`, as in the `cleanup`
+  trap above) deletes anything older than three days — so under a weekly
+  schedule every earlier snapshot is already seven days old by the time the job
+  runs, and "three days of retention" collapses to exactly **one** snapshot.
+  Combine that with the prune-*before*-copy advice above and a single failed run
+  leaves you with **none**. *Count-based* pruning (keep the newest N
+  directories) does the reverse: disk usage stays flat, but a retention of 3
+  now spans three weeks, and your newest copy can be a week old — worst-case
+  data loss went from one day to seven. Neither is wrong; both need to be a
+  decision rather than a leftover.
+
+  While you are in there, note that `-mtime +3` is not "3 days old or more" but
+  *more than* 3 full 24-hour periods. Verified with dated directories: `+3`
+  matched the 4-, 7- and 8-day-old ones and skipped the exactly-3-day-old one,
+  so the real window is a day wider than the label suggests — before any
+  schedule change.
+
+- **Staleness assertions.** The [staleness check](#a-check-that-cannot-fail-is-not-a-check)
+  that warns when the newest snapshot is older than 36 hours is correct for a
+  nightly job and nonsense for a weekly one: it is now true six days out of
+  seven, fires constantly, and gets muted — which leaves you in the same place
+  as a check that can never fail. Re-scale the threshold to a little more than
+  the new interval (for a weekly job, eight days: `-mmin -11520`).
+
+- **Ordering against other jobs.** If a summary, verification, or upload job
+  reads what this one produces, the two schedules have to still interleave in
+  the same order. A backup at 03:00 Sunday feeding a summary at 08:00 Sunday is
+  fine; move the backup to 09:00 and the summary reads *last week's* result
+  every week — and reports a pass while doing it.
+
+The cheap habit: before editing a cron line or timer, grep the job's own script
+for every number in it and ask which ones assumed the old cadence. The cheaper
+one: write the assumed cadence in a comment at the top of the script, next to
+the retention setting, so the two are visible together even though they are
+configured apart.
 
 ### Finding and reclaiming disk space
 
