@@ -310,6 +310,28 @@ out of it is guesswork. Naming the interface asks the question you actually
 meant. It exits non-zero and says `Device "eth0" does not exist` if you name the
 wrong one, which is also more useful than silence.
 
+The same caution applies to the `.local` name of the Pi, in one direction only.
+From your *second* computer, `homeserver.local` is the right way to reach the
+Pi. Resolved **on the Pi itself** it is not dependable once Docker is
+installed: the local resolver sees every interface, so it can answer with a
+Docker bridge address instead of the LAN one, and which bridge it picks varies
+between calls.
+
+```bash
+getent hosts "$(hostname).local"
+# 172.19.0.1      homeserver.local     <-- a Docker bridge, not the LAN address
+```
+
+This was measured on a Pi running several Compose stacks: repeated local
+lookups returned `172.18.0.1` and `172.19.0.1` and never the `192.168.x.x`
+address — while an mDNS query sent *from another host on the LAN* was answered
+with only the LAN address. So what the Pi advertises to the network is correct;
+it is **self**-lookup that misleads, and nothing reports an error either way.
+
+The rule that follows: do not resolve `<hostname>.local` in anything that runs
+on the Pi — a health check, a backup target, a config file the Pi reads back.
+Name the interface, or use the reserved IP you just pinned.
+
 ## 6. Secure your SSH access
 
 Right now the Pi accepts password logins, which are vulnerable to guessing. The
@@ -4094,6 +4116,10 @@ nmcli -t -f DEVICE,STATE device     # is your real interface "connected"?
   the card in another computer, and fix the file directly.
 - **`ping homeserver.local` doesn't resolve** — mDNS may be off on your network.
   Use the Pi's IP address from your router's device list instead.
+  The inverse is also worth knowing: *on the Pi itself* that name may resolve
+  fine but to a Docker bridge address rather than the LAN one, so a connection
+  appears to work while going nowhere useful — see
+  [step 5](#5-give-the-pi-a-stable-address).
 - **A container won't start** — establish whether it exited or is crash-looping
   before reading logs, and read the *last* output rather than following a
   stream that may already be over:
