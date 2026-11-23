@@ -2099,7 +2099,9 @@ GPU machine:
   for tasks that don't need a bigger model — handy for a scheduled job (see
   [Task automation and scheduled jobs](#24-task-automation-and-scheduled-jobs))
   that would rather not spend cloud API quota on a trivial classification or
-  formatting task.
+  formatting task. The OpenAI-compatible path is `/v1`; see [cost, privacy,
+  and a local fallback](#cost-privacy-and-a-local-fallback) for the two ways a
+  local fallback quietly is not one.
 - **Free disk space before pulling models** — even "small" models are 1-2GB+
   each, and they add up on a boot microSD the same way any other write-heavy
   data does (see [Choosing a filesystem for attached storage](#17-choosing-a-filesystem-for-attached-storage)),
@@ -3619,6 +3621,19 @@ not anything interesting happened. Worth doing deliberately:
   agents accept an OpenAI-compatible endpoint, so `http://localhost:11434/v1`
   usually just works, including as an automatic **fallback** when the primary
   provider is unavailable.
+
+  Two caveats, and both only bite when the primary provider is already down.
+  **The endpoint serves only tags you have already pulled** — it proxies
+  nothing to anywhere, and a request naming a model the Pi does not have comes
+  back as `404` with `model '<name>' not found`, which reads like a wrong URL or
+  a dead endpoint rather than a missing model. So pull the fallback model on
+  the day you configure it, and check what is really loaded with `curl -s
+  http://localhost:11434/v1/models`. **Any API key satisfies it**, so a client
+  that refuses to start without one accepts any non-empty string — Ollama
+  ignores the `Authorization` header and answers an unauthenticated request
+  identically. That is the "no authentication of any kind" warning in
+  [step 16](#16-running-a-local-ai-model-with-ollama), seen from the client
+  side.
 - **Pin the model per job**, rather than letting jobs inherit whatever your
   global default happens to be — see the next subsection.
 
