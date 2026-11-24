@@ -871,8 +871,43 @@ with `apt-config dump Dir::Ignore-Files-Silently`. Reference:
 
 **Recommended tuning:** let security updates apply automatically, but consider
 **excluding things you'd rather upgrade deliberately** — Docker Engine, firmware
-— so an unattended update can't break a service while nobody's watching. You can
-also schedule an automatic reboot for a quiet hour if a patch needs one.
+— so an unattended update can't break a service while nobody's watching.
+
+**The automatic reboot option is narrower than it sounds.** Setting
+`Unattended-Upgrade::Automatic-Reboot "true"` does not mean "reboot whenever a
+patch needs one". unattended-upgrades reboots only if the flag file
+`/var/run/reboot-required` exists when the run finishes — the shipped config
+says so in its own comments — and on Debian and Raspberry Pi OS the only thing
+that creates that file is the hook the package itself installs at
+`/etc/kernel/postinst.d/unattended-upgrades`, which fires on **kernel** package
+upgrades. The broader behaviour people expect is Ubuntu's, and comes from
+`update-notifier-common`, which is not packaged for Debian at all (verified on a
+Pi: `apt-cache policy update-notifier-common` reports `Candidate: (none)`). So a
+patched glibc, OpenSSL or dbus leaves long-running services on the old code with
+nothing flagged and no reboot scheduled. Restart those services yourself, or
+reboot on a schedule of your own, rather than assuming this option covers it.
+
+Two more details before you enable it:
+
+- **It reboots even if you are logged in.** `Automatic-Reboot-WithUsers`
+  defaults to `true`, so an SSH session at the chosen hour is cut mid-command.
+  Set it to `false` if you would rather the reboot be skipped while someone is
+  working. `Automatic-Reboot-Time "04:00"` schedules it for that wall-clock time
+  instead of immediately.
+- **The flag is current state, not history.** `/var/run` is a symlink to `/run`,
+  which is a tmpfs, so the file is wiped by the very reboot it asked for. To see
+  whether your Pi is waiting on one, and what asked:
+  ```bash
+  ls /var/run/reboot-required 2>/dev/null && cat /var/run/reboot-required.pkgs
+  ```
+  No output means nothing has flagged a reboot since the last boot — which on
+  Debian mostly means "no kernel upgrade since then", not "nothing needs
+  restarting".
+
+Whatever you set, put it in a file apt will actually read: a `.local` suffix
+silently discards the entire drop-in (see the filename trap above), which is an
+easy way to believe you have automatic reboots configured when in fact none of
+that block applies.
 
 **Confirm it actually works — don't just assume.** A silent auto-updater that
 isn't really running is worse than none, because you'll *believe* you're
