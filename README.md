@@ -2507,7 +2507,11 @@ A home server is only as safe as its backups. Build these habits early:
   ```
 
   Plain `fstab` mounts under `/mnt` are not affected — there `mountpoint -q`
-  is honest. Check which kind you have rather than assuming.
+  is honest. Check which kind you have rather than assuming — and note there is
+  a *third* state, in which the automount unit has itself failed and even the
+  autofs placeholder is gone, leaving a bare directory on the boot card (see
+  [step 27](#27-a-checklist-to-verify-your-setup)). The `-t noautofs` guard is
+  the one form that answers correctly in all three.
 
   **Guard free space too, not just the mount.** A backup drive fills up
   eventually — and a full destination is a nastier failure than an unmounted
@@ -4118,6 +4122,47 @@ a minute. Confirm that is what you are looking at before chasing it:
 ```bash
 nmcli -t -f DEVICE,STATE device     # is your real interface "connected"?
 ```
+
+**A second common entry: the automount unit of a removable drive.** If you gave
+an external drive an `/etc/fstab` line with `x-systemd.automount` — the usual
+way to make a backup drive mount on demand — systemd generates a matching
+`.automount` unit from that line. When the drive is unplugged or dies, the unit
+does not quietly go idle: it ends up `failed (Result: unmounted)` and **stays
+there**, so `systemctl --failed` keeps reporting what looks like a systemd
+problem but is really a missing disk. (Observed on a Pi 5 five days after the
+drive was removed; the matching `.mount` unit still reported
+`Result=success` / `inactive`, which is why only the automount unit shows up.)
+
+Two consequences worth knowing:
+
+- **The mount point reverts to an ordinary empty directory.** While the
+  automount unit is healthy, `findmnt -M <path>` finds an `autofs` filesystem
+  there even with the drive out — the false pass described in
+  [step 20](#20-backups-and-maintenance). Once the unit has failed, that is gone
+  too and the path is just a directory on the boot card, so an unguarded job
+  writes its backup onto the microSD.
+- **Reattaching the drive is not enough**, because a failed unit stays failed
+  until something starts it again. Do that explicitly and confirm, rather than
+  assuming the plug did it:
+  ```bash
+  sudo systemctl restart "media-<user>-<label>.automount"
+  findmnt -M "/media/<user>/<label>" -t noautofs      # exit 0 = really mounted
+  ```
+
+Naming that unit is a small trap of its own. The unit name is the path with the
+leading `/` dropped, remaining `/` turned into `-`, and anything else escaped —
+so a drive labelled `My - Drive` becomes `My\x20\x2d\x20Drive`, which you would
+never guess. Ask systemd for the name instead of typing it, and quote it when
+you do:
+
+```bash
+systemd-escape -p --suffix=automount "/media/<user>/<label>"
+```
+
+The same awkwardness applies in `fstab`, which has no quoting at all: a space in
+a mount point must be written as the octal escape `\040`
+(`/media/<user>/My\040Drive`), per `man 5 fstab`. The simplest fix is upstream
+of all of this — label removable drives without spaces in the first place.
 
 **The two checks nothing on this list can do for you**
 
