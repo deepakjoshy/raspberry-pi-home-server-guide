@@ -579,10 +579,26 @@ rejection log — ufw logs there, and `/var/log/ufw.log` only exists on distros
 whose rsyslog config creates it (Raspberry Pi OS often has no such file):
 
 ```bash
-sudo journalctl -k | grep 'UFW BLOCK' | tail
+sudo ufw status verbose | head -2       # expect: Logging: on (low)
+sudo journalctl _TRANSPORT=kernel | grep 'UFW BLOCK' | tail
 ```
 
 The `SRC=` field in a blocked line tells you exactly which address to allow.
+Two things make an empty result misleading rather than reassuring:
+
+- **Nothing is logged at all if ufw logging is off.** `ufw enable` turns it on
+  at the `low` level by default (`LOGLEVEL=low` in `/etc/ufw/ufw.conf`), which
+  does log blocked packets — but where it was turned off, "no block lines" is
+  the answer to every question you can ask. `sudo ufw logging on` restores it,
+  and `ufw status verbose` is where you confirm it.
+- **Don't use `journalctl -k` for this.** `-k` implies `-b`, so it quietly
+  narrows the answer to the current boot — and the drops worth reading are
+  usually from before the reboot you did while changing the rules. On the Pi
+  this guide was written on, `-k` matched 1,504 `UFW BLOCK` lines where
+  `_TRANSPORT=kernel` — the same kernel messages with no boot filter — matched
+  211,257 in the same journal. (That history only survives a reboot if the
+  journal is persistent; see [step 22](#22-log-management).) Same trap as
+  [step 18](#18-memory-swap-and-container-resource-limits).
 
 **The third gotcha — your LAN-scoped rules are probably IPv4-only.** Most home
 ISPs now hand out a *routable* IPv6 prefix, and there is **no NAT in IPv6** — so
